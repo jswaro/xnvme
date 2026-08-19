@@ -62,13 +62,14 @@ linux/index
 
 The three cijoe scripts share the same set of flags:
 
-| Argument            | Default       | Description                                  |
-|---------------------|---------------|----------------------------------------------|
-| `--nvme-provider`   | `spdk`        | `spdk` or `linux`.                           |
-| `--nvme-traddr`     | `127.0.0.1`   | Transport address (IP) for the listener.     |
-| `--nvme-trsvcid`    | `4420`        | Transport service id (port).             |
-| `--nvme-trtype`     | `tcp`         | Transport type.                              |
-| `--nvme-adrfam`     | `ipv4`        | Address family.                              |
+| Argument            | Default     | Description                                                        |
+|---------------------|-------------|--------------------------------------------------------------------|
+| `--nvme-provider`   | `spdk`      | `spdk` or `linux`.                                                 |
+| `--nvme-traddr`     | `127.0.0.1` | Transport address (IP) for the listener.                           |
+| `--nvme-trsvcid`    | `4420`      | Transport service id (port).                                   |
+| `--nvme-trtype`     | `tcp`       | Transport type.                                                    |
+| `--nvme-adrfam`     | `ipv4`      | Address family.                                                    |
+| `--transport-name`  | None        | CIJOE Transport to use. Defaults to first-found, if not specified. |
 
 The PCIe device to export and its subsystem NQN are read from a device
 entry labelled `fabrics` (legacy label name) in the cijoe configuration.
