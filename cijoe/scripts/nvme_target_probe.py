@@ -17,12 +17,6 @@ from argparse import ArgumentParser
 
 def add_args(parser: ArgumentParser):
     parser.add_argument(
-        "--provider",
-        choices=["spdk", "linux"],
-        default="spdk",
-        help="Target provider that brought the listener up",
-    )
-    parser.add_argument(
         "--traddr",
         type=str,
         default="127.0.0.1",

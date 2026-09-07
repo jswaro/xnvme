@@ -16,8 +16,6 @@ steps:
 
 - name: nvme_target_probe
   uses: nvme_target_probe
-  with:
-    provider: spdk
 
 - name: nvme_target_stop
   uses: nvme_target_stop
