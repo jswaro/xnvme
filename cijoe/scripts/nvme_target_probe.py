@@ -32,6 +32,7 @@ def add_args(parser: ArgumentParser):
         "--nvme-trtype",
         type=str,
         default="tcp",
+        choices=["tcp", "rdma"],
         help="Transport type for the NVMe listener",
     )
     parser.add_argument(
