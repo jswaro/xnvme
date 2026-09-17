@@ -71,7 +71,7 @@ rdmacm_dep = cc.find_library(
   required: get_option('with-spdk-rdma'),
 )
 
-rdma_support_enabled = is_linux and ibverbs_dep.found() and rdmacm_dep.found()
+rdma_support_enabled = is_linux and not is_freebsd and ibverbs_dep.found() and rdmacm_dep.found()
 if rdma_support_enabled
   message('RDMA support enabled')
 else
