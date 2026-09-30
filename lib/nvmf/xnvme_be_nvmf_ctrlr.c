@@ -9,11 +9,7 @@
 #include <xnvme_be_nvmf_fabric.h>
 #include <xnvme_be_nvmf_debug.h>
 
-#define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
-#define _NVMF_INFO(fmt, ...) NVMF_INFO(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
-#define _NVMF_WARN(fmt, ...) NVMF_WARN(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
-#define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
-#define _NVMF_TRACE(fmt, ...) NVMF_TRACE(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
+#define NVMF_DEBUG_CATEGORY NVMF_DEBUG_CATEGORY_CORE_CTRLR
 
 /**
  * Maximum number of attempts to probe for a device matching the provided URI.
@@ -43,7 +39,7 @@ xnvme_be_nvmf_ctrlr_connect(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 
 	err = ctrlr->ops->ctrlr_connect(ctrlr, uri);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_connect(), err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_connect(), err: %d", err);
 		ctrlr->ctrlr_state = XNVME_NVMF_CTRLR_STATE_ERROR;
 		return err;
 	}
@@ -58,7 +54,7 @@ int
 xnvme_be_nvmf_ctrlr_disconnect(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
 	if (!ctrlr) {
-		_NVMF_ERROR("FAILED: NULL ctrlr");
+		NVMF_ERROR("FAILED: NULL ctrlr");
 		return -EINVAL;
 	}
 
@@ -66,7 +62,7 @@ xnvme_be_nvmf_ctrlr_disconnect(struct xnvme_be_nvmf_ctrlr *ctrlr)
 		return ctrlr->ops->ctrlr_disconnect(ctrlr);
 	}
 
-	_NVMF_ERROR("FAILED: No disconnect operation defined for controller");
+	NVMF_ERROR("FAILED: No disconnect operation defined for controller");
 	return -ENOSYS;
 }
 
@@ -84,18 +80,18 @@ xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
 	};
 
 	if (!transport || !attr || !ctrlr) {
-		_NVMF_ERROR("FAILED: Invalid arguments");
+		NVMF_ERROR("FAILED: Invalid arguments");
 		return -EINVAL;
 	}
 
 	if (!attr->dev) {
-		_NVMF_ERROR("FAILED: Invalid device in controller attributes");
+		NVMF_ERROR("FAILED: Invalid device in controller attributes");
 		return -EINVAL;
 	}
 
 	int err = transport->ops->ctrlr_alloc(&tmp);
 	if (err) {
-		_NVMF_ERROR("FAILED: transport->ops->ctrlr_alloc(), err: %d", err);
+		NVMF_ERROR("FAILED: transport->ops->ctrlr_alloc(), err: %d", err);
 		return err;
 	}
 
@@ -106,19 +102,19 @@ xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
 	tmp->last_allocated_queue_id = XNVME_BE_NVMF_IO_QUEUE_ID_START;
 	tmp->attached = 0;
 
-	_NVMF_INFO("INFO: ctrlr->discovery_ctrlr set to %d based on dev->ident.subnqn=\"%s\"",
+	NVMF_INFO("INFO: ctrlr->discovery_ctrlr set to %d based on dev->ident.subnqn=\"%s\"",
 		   tmp->discovery_ctrlr, attr->dev->ident.subnqn);
 
 	err = tmp->ops->ctrlr_init(tmp);
 	if (err) {
-		_NVMF_ERROR("FAILED: ctrlr->ops->ctrlr_init(), err: %d", err);
+		NVMF_ERROR("FAILED: ctrlr->ops->ctrlr_init(), err: %d", err);
 		tmp->ops->ctrlr_free(tmp);
 		return err;
 	}
 
 	err = xnvme_be_nvmf_qpair_create(tmp, attr->dev, &default_qpair_attr, &tmp->admin_qpair);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_create() for admin_qpair, err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_create() for admin_qpair, err: %d", err);
 		tmp->ops->ctrlr_teardown(tmp);
 		tmp->ops->ctrlr_free(tmp);
 		return err;
@@ -134,13 +130,13 @@ xnvme_be_nvmf_ctrlr_destroy(struct xnvme_be_nvmf_ctrlr *ctrlr)
 	int err;
 
 	if (!ctrlr) {
-		_NVMF_ERROR("FAILED: NULL ctrlr");
+		NVMF_ERROR("FAILED: NULL ctrlr");
 		return -EINVAL;
 	}
 
 	err = ctrlr->ops->ctrlr_teardown(ctrlr);
 	if (err) {
-		_NVMF_ERROR("FAILED: ctrlr->ops->ctrlr_teardown(), err: %d", err);
+		NVMF_ERROR("FAILED: ctrlr->ops->ctrlr_teardown(), err: %d", err);
 	}
 
 	/*
@@ -164,13 +160,13 @@ xnvme_be_nvmf_transport_probe(struct xnvme_be_nvmf_transport *transport,
 
 	err = xnvme_be_nvmf_ctrlr_create(transport, attr, &tmp_ctrlr);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_create(), err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_create(), err: %d", err);
 		return err;
 	}
 
 	err = xnvme_be_nvmf_ctrlr_connect(tmp_ctrlr, attr->dev->ident.uri);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_connect(), err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_connect(), err: %d", err);
 		goto destroy_controller;
 	}
 
@@ -186,7 +182,7 @@ destroy_controller:
 static inline void
 _dump_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
-	_NVMF_DEBUG("INFO: ctrlr: \n"
+	NVMF_DEBUG("INFO: ctrlr: \n"
 		    "\tctrlr_id: %d\n"
 		    "\tctrlr_state: %d"
 		    "\tattached: %d\n"
@@ -217,24 +213,24 @@ xnvme_be_nvmf_ctrlr_probe(struct xnvme_dev *dev, struct xnvme_be_nvmf_ctrlr **ct
 	for (int i = 0; !tmp_ctrlr; ++i) {
 		// If the maximum number of attempts is reached, return an error.
 		if (XNVME_BE_NVMF_MAX_PROBE_ATTEMPTS == i) {
-			_NVMF_ERROR("FAILED: max attempts exceeded");
+			NVMF_ERROR("FAILED: max attempts exceeded");
 			err = -ENXIO;
 			goto free_ctrlr_id;
 		}
 
 		FOR_EACH_NVMF_TRANSPORT(transport)
 		{
-			_NVMF_INFO("INFO: Attempting to probe transport: %s", (*transport)->name);
+			NVMF_INFO("INFO: Attempting to probe transport: %s", (*transport)->name);
 
 			err = xnvme_be_nvmf_transport_probe(*transport, &attr, &tmp_ctrlr);
 			if (!err) {
-				_NVMF_INFO("INFO: Successfully connected to transport: %s",
+				NVMF_INFO("INFO: Successfully connected to transport: %s",
 					   dev->ident.uri);
-				_NVMF_INFO("INFO: transport->probe() successful, device is "
+				NVMF_INFO("INFO: transport->probe() successful, device is "
 					   "reachable and supports NVMe-oF");
 				break;
 			} else {
-				_NVMF_INFO("INFO: transport->probe() failed for transport: %s, "
+				NVMF_INFO("INFO: transport->probe() failed for transport: %s, "
 					   "err: %d",
 					   (*transport)->name, err);
 			}
@@ -261,7 +257,7 @@ int
 xnvme_be_nvmf_ctrlr_enable(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
 	if (!ctrlr || !ctrlr->admin_qpair) {
-		_NVMF_ERROR("FAILED: Invalid ctrlr or missing admin_qpair");
+		NVMF_ERROR("FAILED: Invalid ctrlr or missing admin_qpair");
 		return -EINVAL;
 	}
 
@@ -277,7 +273,7 @@ xnvme_be_nvmf_ctrlr_disable(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
 	(void)ctrlr;
 
-	_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_disable() not implemented");
+	NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_disable() not implemented");
 	return -ENOSYS;
 }
 
@@ -286,7 +282,7 @@ xnvme_be_nvmf_ctrlr_reg(struct xnvme_be_nvmf_ctrlr *ctrlr, void *buf, size_t nby
 			uint32_t *key)
 {
 	if (!ctrlr || !ctrlr->ops || !ctrlr->ops->ctrlr_reg) {
-		_NVMF_ERROR("FAILED: No ctrlr_reg operation defined for controller");
+		NVMF_ERROR("FAILED: No ctrlr_reg operation defined for controller");
 		return -ENOSYS;
 	}
 
@@ -297,7 +293,7 @@ int
 xnvme_be_nvmf_ctrlr_dereg(struct xnvme_be_nvmf_ctrlr *ctrlr, void *handle)
 {
 	if (!ctrlr || !ctrlr->ops || !ctrlr->ops->ctrlr_dereg) {
-		_NVMF_ERROR("FAILED: No ctrlr_dereg operation defined for controller");
+		NVMF_ERROR("FAILED: No ctrlr_dereg operation defined for controller");
 		return -ENOSYS;
 	}
 
@@ -319,17 +315,17 @@ xnvme_be_nvmf_dev_ctrlr_init(struct xnvme_dev *dev)
 	struct xnvme_be_nvmf_ctrlr *ctrlr = NULL;
 	int err;
 
-	_NVMF_INFO("INFO: dev_ctrlr_init() for NVMe-oF device: %s, ns=%u, discovery=%s",
+	NVMF_INFO("INFO: dev_ctrlr_init() for NVMe-oF device: %s, ns=%u, discovery=%s",
 		   dev->ident.uri, dev->ident.nsid, dev->ident.nsid == 0 ? "yes" : "no");
 
 	if (state->ctrlr) {
-		_NVMF_INFO("INFO: Controller already initialized, reusing existing controller");
+		NVMF_INFO("INFO: Controller already initialized, reusing existing controller");
 		return state->ctrlr;
 	}
 
 	err = xnvme_be_nvmf_ctrlr_probe(dev, &ctrlr);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_probe(), err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_probe(), err: %d", err);
 		errno = -err;
 		return NULL;
 	}
@@ -338,14 +334,14 @@ xnvme_be_nvmf_dev_ctrlr_init(struct xnvme_dev *dev)
 
 	err = xnvme_be_nvmf_ctrlr_enable(ctrlr);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_enable(), err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_enable(), err: %d", err);
 		xnvme_be_nvmf_ctrlr_disconnect(ctrlr);
 		xnvme_be_nvmf_ctrlr_destroy(ctrlr);
 		errno = -err;
 		return NULL;
 	}
 
-	_NVMF_INFO("INFO: dev_ctrlr_init() OK");
+	NVMF_INFO("INFO: dev_ctrlr_init() OK");
 	return ctrlr;
 }
 
@@ -355,13 +351,13 @@ xnvme_be_nvmf_dev_ctrlr_term(void *ctrlr)
 	struct xnvme_be_nvmf_ctrlr *nvmf_ctrlr = (void *)ctrlr;
 	int err;
 
-	_NVMF_INFO("INFO: dev_ctrlr_term() for NVMe-oF controller");
+	NVMF_INFO("INFO: dev_ctrlr_term() for NVMe-oF controller");
 
 	if (nvmf_ctrlr) {
 		if (nvmf_ctrlr->ctrlr_state == XNVME_NVMF_CTRLR_STATE_CONNECTED) {
 			err = xnvme_be_nvmf_ctrlr_disconnect(nvmf_ctrlr);
 			if (err) {
-				_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_disconnect(), err: %d",
+				NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_disconnect(), err: %d",
 					    err);
 				return err;
 			}
@@ -369,7 +365,7 @@ xnvme_be_nvmf_dev_ctrlr_term(void *ctrlr)
 
 		err = xnvme_be_nvmf_ctrlr_destroy(nvmf_ctrlr);
 		if (err) {
-			_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_destroy(), err: %d", err);
+			NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_destroy(), err: %d", err);
 			return err;
 		}
 	}

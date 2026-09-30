@@ -22,14 +22,12 @@
 #include <xnvme_be_nvmf_qpair.h>
 #include <xnvme_be_nvmf_debug.h>
 
-#define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CORE_DEV, fmt, ##__VA_ARGS__)
-#define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_CORE_DEV, fmt, ##__VA_ARGS__)
-#define _NVMF_INFO(fmt, ...) NVMF_INFO(NVMF_DEBUG_CATEGORY_CORE_DEV, fmt, ##__VA_ARGS__)
+#define NVMF_DEBUG_CATEGORY NVMF_DEBUG_CATEGORY_CORE
 
 static inline void
 _dump_qpair(struct xnvme_be_nvmf_qpair *qpair)
 {
-	_NVMF_DEBUG("INFO: \nqpair=%p\n"
+	NVMF_DEBUG("INFO: \nqpair=%p\n"
 		    "\tqid: %d\n"
 		    "\tqsize: %d\n"
 		    "\tcntlid: %d\n",
@@ -41,12 +39,12 @@ _dump_dev(struct xnvme_dev *dev)
 {
 	struct xnvme_be_nvmf_state *state = (struct xnvme_be_nvmf_state *)&dev->be.state;
 
-	_NVMF_DEBUG("INFO: \ndev=%p\n\tdev->ident: \n\t\turi: %s, \n\t\tcsi: %d, \n\t\tdtype: %d, "
+	NVMF_DEBUG("INFO: \ndev=%p\n\tdev->ident: \n\t\turi: %s, \n\t\tcsi: %d, \n\t\tdtype: %d, "
 		    "\n\t\tnsid: %d, \n\t\tsubnqn: %s",
 		    dev, dev->ident.uri, dev->ident.csi, dev->ident.dtype, dev->ident.nsid,
 		    dev->ident.subnqn);
 
-	_NVMF_DEBUG("INFO: \ndev=%p \n"
+	NVMF_DEBUG("INFO: \ndev=%p \n"
 		    "\tstate.ctrlr: %p\n"
 		    "\tstate.ns: %p\n"
 		    "\tstate.admin_qpair: %p\n"
@@ -64,7 +62,7 @@ _dump_dev(struct xnvme_dev *dev)
 void
 xnvme_be_nvmf_dev_close(struct xnvme_dev *dev)
 {
-	_NVMF_DEBUG("INFO: dev_close() for NVMe-oF device: %s", dev->ident.uri);
+	NVMF_DEBUG("INFO: dev_close() for NVMe-oF device: %s", dev->ident.uri);
 }
 
 int
@@ -74,7 +72,7 @@ xnvme_be_nvmf_dev_open(struct xnvme_dev *dev)
 	struct xnvme_be_nvmf_ctrlr *ctrlr = state->ctrlr;
 	struct xnvme_be_nvmf_qpair *admin_qpair = NULL;
 
-	_NVMF_DEBUG("INFO: dev_open() for NVMe-oF device: dev=%p, %s, dtype: %d, nsid: 0x%x, "
+	NVMF_DEBUG("INFO: dev_open() for NVMe-oF device: dev=%p, %s, dtype: %d, nsid: 0x%x, "
 		    "subnqn: %s",
 		    dev, dev->ident.uri, dev->ident.dtype, dev->ident.nsid, dev->ident.subnqn);
 
@@ -105,14 +103,14 @@ xnvme_be_nvmf_dev_open(struct xnvme_dev *dev)
 		// create a new admin queue pair for the namespace
 		err = xnvme_be_nvmf_qpair_create(ctrlr, dev, &admin_attr, &admin_qpair);
 		if (err) {
-			_NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_create(), err: %d", err);
+			NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_create(), err: %d", err);
 			return err;
 		}
 
 		// Set the device pointer for the newly created admin queue pair
 		err = xnvme_be_nvmf_qpair_connect(admin_qpair);
 		if (err) {
-			_NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_connect(), err: %d", err);
+			NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_connect(), err: %d", err);
 			xnvme_be_nvmf_qpair_destroy(admin_qpair);
 			return err;
 		}

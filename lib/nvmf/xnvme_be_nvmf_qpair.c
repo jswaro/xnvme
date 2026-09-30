@@ -16,8 +16,7 @@
 #define XNVME_MIN_COMPLETION_SIZE sizeof(struct xnvme_spec_cpl)
 #define XNVME_BE_NVMF_MAX_QSIZE 4096
 
-#define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_CORE_QPAIR, fmt, ##__VA_ARGS__)
-#define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CORE_QPAIR, fmt, ##__VA_ARGS__)
+#define NVMF_DEBUG_CATEGORY NVMF_DEBUG_CATEGORY_CORE_QPAIR
 
 int
 xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *dev,
@@ -55,14 +54,14 @@ xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *
 
 	err = tmp->ops->qpair_init(tmp);
 	if (err) {
-		_NVMF_ERROR("FAILED: qpair->ops->qpair_init(), err: %d", err);
+		NVMF_DEBUG("FAILED: qpair->ops->qpair_init(), err: %d", err);
 		tmp->ops->qpair_free(tmp);
 		return err;
 	}
 
 	err = xnvme_be_nvmf_req_pool_alloc(&tmp->req_pool, attr->qsize);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_req_pool_alloc(), err: %d", err);
+		NVMF_DEBUG("FAILED: xnvme_be_nvmf_req_pool_alloc(), err: %d", err);
 		tmp->ops->qpair_teardown(tmp);
 		tmp->ops->qpair_free(tmp);
 		return err;
@@ -79,7 +78,7 @@ xnvme_be_nvmf_qpair_connect(struct xnvme_be_nvmf_qpair *qpair)
 
 	err = qpair->ops->qpair_connect(qpair);
 	if (err) {
-		_NVMF_ERROR("FAILED: transport connect, err: %d", err);
+		NVMF_DEBUG("FAILED: transport connect, err: %d", err);
 		return err;
 	}
 
@@ -89,7 +88,7 @@ xnvme_be_nvmf_qpair_connect(struct xnvme_be_nvmf_qpair *qpair)
 
 	err = xnvme_be_nvmf_fabric_connect(qpair);
 	if (err) {
-		_NVMF_ERROR("FAILED: send fabric connect command, err: %d", err);
+		NVMF_DEBUG("FAILED: send fabric connect command, err: %d", err);
 		return err;
 	}
 
@@ -111,13 +110,13 @@ xnvme_be_nvmf_qpair_destroy(struct xnvme_be_nvmf_qpair *qpair)
 
 	err = xnvme_be_nvmf_req_pool_free(qpair->req_pool);
 	if (err) {
-		_NVMF_ERROR("FAILED: nvme_be_nvmf_req_pool_free(), err: %d", err);
+		NVMF_DEBUG("FAILED: nvme_be_nvmf_req_pool_free(), err: %d", err);
 		return err;
 	}
 
 	err = qpair->ops->qpair_teardown(qpair);
 	if (err) {
-		_NVMF_ERROR("FAILED: qpair->ops->qpair_teardown(), err: %d", err);
+		NVMF_DEBUG("FAILED: qpair->ops->qpair_teardown(), err: %d", err);
 		return err;
 	}
 
@@ -134,7 +133,7 @@ xnvme_be_nvmf_qpair_complete(struct xnvme_be_nvmf_qpair *qpair, const struct xnv
 
 	req = xnvme_be_nvmf_req_get(qpair->req_pool, cpl->cid);
 	if (!req) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_req_get() for cid: %u", cpl->cid);
+		NVMF_DEBUG("FAILED: xnvme_be_nvmf_req_get() for cid: %u", cpl->cid);
 		return -EINVAL;
 	}
 

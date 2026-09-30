@@ -3,6 +3,8 @@
 
 #include <xnvme_be_nvmf_debug.h>
 
+#ifdef XNVME_DEBUG_ENABLED
+
 int nvmf_debug_log_level;
 int nvmf_debug_categories[NVMF_DEBUG_CATEGORY_MAX];
 
@@ -256,7 +258,7 @@ _xnvme_resolve_command_specific_sc(struct xnvme_spec_cpl *cpl)
 	return "Unknown";
 }
 
-int
+void
 _xnvme_print_error_code(struct xnvme_spec_cpl *cpl)
 {
 	static const char *sct_names[] = {
@@ -281,14 +283,14 @@ _xnvme_print_error_code(struct xnvme_spec_cpl *cpl)
 		XNVME_DEBUG("INFO: NVMe CPL val=0x%04x sct=0x%02x(%s) sc=0x%02x m=%d dnr=%d",
 			    cpl->status.val, sct, sct_name, cpl->status.sc, cpl->status.m,
 			    cpl->status.dnr);
-		return -ENOSYS;
+		return;
 	}
 
 	XNVME_DEBUG("INFO: NVMe CPL val=0x%04x sct=0x%02x(%s) sc=0x%02x(%s) m=%d dnr=%d",
 		    cpl->status.val, sct, sct_name, cpl->status.sc, sc_name, cpl->status.m,
 		    cpl->status.dnr);
 
-	return 0;
+	return;
 }
 
 static inline void
@@ -422,3 +424,4 @@ xnvme_be_nvmf_debug_init(void)
 
 	return 0;
 }
+#endif

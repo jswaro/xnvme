@@ -32,14 +32,16 @@
  * into the core only through xnvme_be_nvmf_qpair_complete().
  */
 
-#define _NVMF_RDMACM_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
-#define _NVMF_RDMACM_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
+#define NVMF_DEBUG_CATEGORY NVMF_DEBUG_CATEGORY_VERBS
 
-#define _NVMF_CTRL_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
-#define _NVMF_CTRL_ERROR(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
+#define NVMF_RDMACM_DEBUG(fmt, ...) _NVMF_DEBUG(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
+#define NVMF_RDMACM_ERROR(fmt, ...) _NVMF_ERROR(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
 
-#define _NVMF_DATA_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
-#define _NVMF_DATA_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
+#define NVMF_CTRL_DEBUG(fmt, ...) _NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
+#define NVMF_CTRL_ERROR(fmt, ...) _NVMF_ERROR(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
+
+#define NVMF_DATA_DEBUG(fmt, ...) _NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
+#define NVMF_DATA_ERROR(fmt, ...) _NVMF_ERROR(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
 
 static const struct xnvme_be_nvmf_transport_ops g_xnvme_be_nvmf_rdma_ops;
 
@@ -58,7 +60,7 @@ _rdma_resolve_addrinfo(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 
 	cpy = strdup(uri);
 	if (!cpy) {
-		_NVMF_RDMACM_ERROR("FAILED: strdup(), err: %d", errno);
+		NVMF_RDMACM_ERROR("FAILED: strdup(), err: %d", errno);
 		return -ENOMEM;
 	}
 
@@ -68,12 +70,12 @@ _rdma_resolve_addrinfo(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 
 	err = rdma_getaddrinfo(ip_addr, port, NULL, &rdma_ctrlr->res);
 	if (err) {
-		_NVMF_RDMACM_ERROR("FAILED: rdma_getaddrinfo(), err: %d", err);
+		NVMF_RDMACM_ERROR("FAILED: rdma_getaddrinfo(), err: %d", err);
 		goto failed_getaddrinfo;
 	}
-	_NVMF_RDMACM_DEBUG("INFO: Successfully retrieved address for transport: IP: %s, Port: %s",
+	NVMF_RDMACM_DEBUG("INFO: Successfully retrieved address for transport: IP: %s, Port: %s",
 			   ip_addr, port);
-	_NVMF_RDMACM_DEBUG("INFO: Address family: %s",
+	NVMF_RDMACM_DEBUG("INFO: Address family: %s",
 			   rdma_ctrlr->res->ai_family == AF_INET ? "IPv4" : "IPv6");
 
 	return 0;
@@ -90,7 +92,7 @@ _rdma_ctrlr_alloc(struct xnvme_be_nvmf_ctrlr **ctrlr)
 
 	rdma_ctrlr = calloc(1, sizeof(*rdma_ctrlr));
 	if (!rdma_ctrlr) {
-		_NVMF_RDMACM_ERROR("FAILED: calloc(), err: %d", errno);
+		NVMF_RDMACM_ERROR("FAILED: calloc(), err: %d", errno);
 		return -ENOMEM;
 	}
 
@@ -124,14 +126,14 @@ _rdma_ctrlr_connect(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 
 	err = _rdma_resolve_addrinfo(ctrlr, uri);
 	if (err) {
-		_NVMF_RDMACM_ERROR("FAILED: _rdma_resolve_addrinfo(), err: %d", err);
+		NVMF_RDMACM_ERROR("FAILED: _rdma_resolve_addrinfo(), err: %d", err);
 		return err;
 	}
 
 	rdma_ctrlr->selected = NULL;
 	for (struct rdma_addrinfo *ai = rdma_ctrlr->res; ai != NULL; ai = ai->ai_next) {
 		if (ai->ai_family != AF_INET) {
-			_NVMF_RDMACM_DEBUG("INFO: Skipping unsupported address family: %d",
+			NVMF_RDMACM_DEBUG("INFO: Skipping unsupported address family: %d",
 					   ai->ai_family);
 			continue;
 		}
@@ -146,11 +148,11 @@ _rdma_ctrlr_connect(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 	}
 
 	if (err) {
-		_NVMF_RDMACM_ERROR("FAILED: Could not connect to any suitable RDMA address");
+		NVMF_RDMACM_ERROR("FAILED: Could not connect to any suitable RDMA address");
 		goto destroy_qp;
 	}
 
-	_NVMF_RDMACM_DEBUG("INFO: Successfully connected admin queue to remote controller");
+	NVMF_RDMACM_DEBUG("INFO: Successfully connected admin queue to remote controller");
 
 	return 0;
 
@@ -170,14 +172,14 @@ _rdma_ctrlr_disconnect(struct xnvme_be_nvmf_ctrlr *ctrlr)
 	int err;
 
 	if (!ctrlr || !ctrlr->admin_qpair) {
-		_NVMF_RDMACM_DEBUG("INFO: No admin_qpair to disconnect");
+		NVMF_RDMACM_DEBUG("INFO: No admin_qpair to disconnect");
 		return 0;
 	}
 
 	if (ctrlr->attached) {
 		err = xnvme_be_nvmf_qpair_disconnect(ctrlr->admin_qpair);
 		if (err) {
-			_NVMF_RDMACM_ERROR("FAILED: xnvme_be_nvmf_disconnect_qpair(), err: %d",
+			NVMF_RDMACM_ERROR("FAILED: xnvme_be_nvmf_disconnect_qpair(), err: %d",
 					   err);
 			return err;
 		}
@@ -228,14 +230,14 @@ _rdma_ctrlr_reg(struct xnvme_be_nvmf_ctrlr *ctrlr, void *buf, size_t nbytes, voi
 	struct ibv_mr *mr;
 
 	if (!rdma_ctrlr->pd) {
-		_NVMF_RDMACM_ERROR("FAILED: no PD on controller");
+		NVMF_RDMACM_ERROR("FAILED: no PD on controller");
 		return -EINVAL;
 	}
 
 	mr = ibv_reg_mr(rdma_ctrlr->pd, buf, nbytes,
 			IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
 	if (!mr) {
-		_NVMF_RDMACM_ERROR("FAILED: ibv_reg_mr(), err: %d", errno);
+		NVMF_RDMACM_ERROR("FAILED: ibv_reg_mr(), err: %d", errno);
 		return -errno;
 	}
 
@@ -257,7 +259,7 @@ _rdma_ctrlr_dereg(struct xnvme_be_nvmf_ctrlr *XNVME_UNUSED(ctrlr), void *handle)
 
 	err = ibv_dereg_mr(mr);
 	if (err) {
-		_NVMF_RDMACM_ERROR("FAILED: ibv_dereg_mr(), err: %d", err);
+		NVMF_RDMACM_ERROR("FAILED: ibv_dereg_mr(), err: %d", err);
 		return -err;
 	}
 
@@ -278,7 +280,7 @@ _rdma_qpair_alloc(struct xnvme_be_nvmf_ctrlr *XNVME_UNUSED(ctrlr),
 
 	rdma_qpair = calloc(1, sizeof(*rdma_qpair));
 	if (!rdma_qpair) {
-		_NVMF_CTRL_ERROR("FAILED: calloc(), err: %d", errno);
+		NVMF_CTRL_ERROR("FAILED: calloc(), err: %d", errno);
 		return -ENOMEM;
 	}
 
@@ -303,7 +305,7 @@ _rdma_qpair_init(struct xnvme_be_nvmf_qpair *qpair)
 
 	rdma_qpair->event_channel = rdma_create_event_channel();
 	if (!rdma_qpair->event_channel) {
-		_NVMF_CTRL_ERROR("FAILED: rdma_create_event_channel(), err: %d", errno);
+		NVMF_CTRL_ERROR("FAILED: rdma_create_event_channel(), err: %d", errno);
 		return -errno;
 	}
 
@@ -329,14 +331,14 @@ _rdma_qpair_teardown(struct xnvme_be_nvmf_qpair *qpair)
 	int err = 0;
 
 	if (!rdma_qpair->cm_id) {
-		_NVMF_CTRL_ERROR("INFO: No qpair to destroy");
+		NVMF_CTRL_ERROR("INFO: No qpair to destroy");
 		return 0;
 	}
 
 	if (rdma_qpair->send_mr) {
 		err = ibv_dereg_mr(rdma_qpair->send_mr);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: ibv_dereg_mr() for send_mr, err: %d", err);
+			NVMF_CTRL_ERROR("FAILED: ibv_dereg_mr() for send_mr, err: %d", err);
 			return err;
 		}
 	}
@@ -344,7 +346,7 @@ _rdma_qpair_teardown(struct xnvme_be_nvmf_qpair *qpair)
 	if (rdma_qpair->recv_mr) {
 		err = ibv_dereg_mr(rdma_qpair->recv_mr);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: ibv_dereg_mr() for recv_mr, err: %d", err);
+			NVMF_CTRL_ERROR("FAILED: ibv_dereg_mr() for recv_mr, err: %d", err);
 			return err;
 		}
 	}
@@ -363,7 +365,7 @@ _rdma_qpair_teardown(struct xnvme_be_nvmf_qpair *qpair)
 		rdma_destroy_qp(rdma_qpair->cm_id);
 		err = rdma_destroy_id(rdma_qpair->cm_id);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: rdma_destroy_id(), err: %d", err);
+			NVMF_CTRL_ERROR("FAILED: rdma_destroy_id(), err: %d", err);
 			return err;
 		}
 
@@ -373,7 +375,7 @@ _rdma_qpair_teardown(struct xnvme_be_nvmf_qpair *qpair)
 	if (rdma_qpair->send_cq) {
 		err = ibv_destroy_cq(rdma_qpair->send_cq);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: ibv_destroy_cq() for send_cq, err: %d", err);
+			NVMF_CTRL_ERROR("FAILED: ibv_destroy_cq() for send_cq, err: %d", err);
 			return err;
 		}
 		rdma_qpair->send_cq = NULL;
@@ -382,7 +384,7 @@ _rdma_qpair_teardown(struct xnvme_be_nvmf_qpair *qpair)
 	if (rdma_qpair->recv_cq) {
 		err = ibv_destroy_cq(rdma_qpair->recv_cq);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: ibv_destroy_cq() for recv_cq, err: %d", err);
+			NVMF_CTRL_ERROR("FAILED: ibv_destroy_cq() for recv_cq, err: %d", err);
 			return err;
 		}
 		rdma_qpair->recv_cq = NULL;
@@ -410,36 +412,36 @@ _rdma_qpair_connect(struct xnvme_be_nvmf_qpair *qpair)
 	err = rdma_create_id(rdma_qpair->event_channel, &rdma_qpair->cm_id, qpair,
 			     ai->ai_port_space);
 	if (err) {
-		_NVMF_CTRL_ERROR("FAILED: rdma_create_id(), err: %d", err);
+		NVMF_CTRL_ERROR("FAILED: rdma_create_id(), err: %d", err);
 		return err;
 	}
 
 	err = rdma_resolve_addr(rdma_qpair->cm_id, NULL, ai->ai_dst_addr,
 				XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS);
 	if (err) {
-		_NVMF_CTRL_ERROR("FAILED: rdma_resolve_addr(), err: %d", err);
+		NVMF_CTRL_ERROR("FAILED: rdma_resolve_addr(), err: %d", err);
 		rdma_destroy_id(rdma_qpair->cm_id);
 		return err;
 	}
-	_NVMF_CTRL_DEBUG(
+	NVMF_CTRL_DEBUG(
 		"INFO: rdma_resolve_addr() successful, waiting for RDMA_CM_EVENT_ADDR_RESOLVED");
 	rdma_qpair->rdma_qp_state = XNVME_NVMF_RDMACM_STATE_RESOLVE_ADDRESS;
 
 	while (qpair->state != XNVME_NVMF_QPAIR_STATE_CONNECTED) {
 		err = _process_qpair_cm_events(qpair, XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: _process_qpair_cm_events(), err: %d", err);
+			NVMF_CTRL_ERROR("FAILED: _process_qpair_cm_events(), err: %d", err);
 			return err;
 		}
 
 		if (qpair->state == XNVME_NVMF_QPAIR_STATE_ERROR) {
-			_NVMF_CTRL_ERROR("FAILED: QPair entered ERROR state during connection");
+			NVMF_CTRL_ERROR("FAILED: QPair entered ERROR state during connection");
 			_rdma_qpair_teardown(qpair);
 			return -EIO;
 		}
 	}
 
-	_NVMF_CTRL_DEBUG("INFO: QPair transport-connected successfully");
+	NVMF_CTRL_DEBUG("INFO: QPair transport-connected successfully");
 
 	return 0;
 }
@@ -452,22 +454,22 @@ _rdma_qpair_disconnect(struct xnvme_be_nvmf_qpair *qpair)
 
 	if (qpair->state != XNVME_NVMF_QPAIR_STATE_CONNECTED &&
 	    qpair->state != XNVME_NVMF_QPAIR_STATE_READY) {
-		_NVMF_CTRL_DEBUG("INFO: QPair is not connected, skipping disconnect");
+		NVMF_CTRL_DEBUG("INFO: QPair is not connected, skipping disconnect");
 		return -ENOLINK;
 	}
 
 	err = rdma_disconnect(rdma_qpair->cm_id);
 	if (err) {
-		_NVMF_CTRL_ERROR("FAILED: rdma_disconnect(), err: %d", err);
+		NVMF_CTRL_ERROR("FAILED: rdma_disconnect(), err: %d", err);
 		return err;
 	}
-	_NVMF_CTRL_DEBUG(
+	NVMF_CTRL_DEBUG(
 		"INFO: rdma_disconnect() successful, waiting for RDMA_CM_EVENT_DISCONNECTED");
 
 	while (qpair->state != XNVME_NVMF_QPAIR_STATE_DISCONNECTED) {
 		err = _process_qpair_cm_events(qpair, XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: _process_qpair_cm_events(), err: %d", err);
+			NVMF_CTRL_ERROR("FAILED: _process_qpair_cm_events(), err: %d", err);
 			return err;
 		}
 	}
@@ -516,14 +518,14 @@ _rdma_send_cap(struct xnvme_be_nvmf_qpair *qpair, const void *buf, size_t len, u
 		memcpy((void *)sge.addr, buf, len);
 	}
 
-	_NVMF_DATA_DEBUG("INFO: Hexdump of send buffer: addr=%p, len=%zu, lkey=%u",
+	NVMF_DATA_DEBUG("INFO: Hexdump of send buffer: addr=%p, len=%zu, lkey=%u",
 			 (void *)sge.addr, sge.length, sge.lkey);
 	_hexdump_range(NVMF_DEBUG_CATEGORY_VERBS_DATA, (void *)sge.addr, sge.length);
-	_NVMF_DATA_DEBUG("INFO: Sending capsule, wr_id.index: %lu, wr_id.type: %u, len: %zu",
+	NVMF_DATA_DEBUG("INFO: Sending capsule, wr_id.index: %lu, wr_id.type: %u, len: %zu",
 			 wr_id.index, wr_id.type, len);
 	err = ibv_post_send(rdma_qpair->cm_id->qp, &send_wr, &bad_wr);
 	if (err) {
-		_NVMF_DATA_ERROR("FAILED: ibv_post_send(), err: %d", err);
+		NVMF_DATA_ERROR("FAILED: ibv_post_send(), err: %d", err);
 	}
 	return err;
 }
@@ -580,7 +582,7 @@ xnvme_be_nvmf_rdma_top_recv_complete(struct xnvme_be_nvmf_qpair *qpair, void *bu
 	int err;
 
 	if (len < sizeof(*cpl)) {
-		_NVMF_DATA_ERROR("FAILED: short capsule, len: %zu", len);
+		NVMF_DATA_ERROR("FAILED: short capsule, len: %zu", len);
 		qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;
 		return -EIO;
 	}
@@ -591,13 +593,13 @@ xnvme_be_nvmf_rdma_top_recv_complete(struct xnvme_be_nvmf_qpair *qpair, void *bu
 		break;
 
 	default:
-		_NVMF_DATA_ERROR("FAILED: capsule in unexpected state: %d", qpair->state);
+		NVMF_DATA_ERROR("FAILED: capsule in unexpected state: %d", qpair->state);
 		break;
 	}
 
 	err = xnvme_be_nvmf_qpair_complete(qpair, cpl);
 	if (err) {
-		_NVMF_DATA_ERROR("FAILED: xnvme_be_nvmf_qpair_complete(), err: %d", err);
+		NVMF_DATA_ERROR("FAILED: xnvme_be_nvmf_qpair_complete(), err: %d", err);
 		qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;
 		return err;
 	}

@@ -21,15 +21,14 @@
 #include <xnvme_be_nvmf_rdma.h>
 
 /*
- * Bottom half (design.md section 3): verbs completion queue mechanics. Pure
+ * Verbs completion queue mechanics. Pure
  * CQ/work-completion decoding, transport-native, with no NVMe-oF knowledge.
  * `_handle_recv_cmpl()` is the one place that reaches into the top half,
  * through `xnvme_be_nvmf_rdma_top_recv_complete()`, to deliver a received
  * capsule.
  */
 
-#define _NVMF_DATA_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
-#define _NVMF_DATA_ERROR(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
+#define NVMF_DEBUG_CATEGORY NVMF_DEBUG_CATEGORY_VERBS_DATA
 
 typedef int (*xnvme_be_nvmf_ib_cmpl_fn)(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc);
 
@@ -65,14 +64,14 @@ _handle_send_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc)
 	struct xnvme_be_nvmf_wr_id wr_id = {.raw = wc->wr_id};
 	int status = (wc->status == IBV_WC_SUCCESS) ? 0 : -EIO;
 
-	_NVMF_DATA_DEBUG(
+	NVMF_DEBUG(
 		"INFO: Work completion, status: %s, opcode: %s, wr_id index: %u, type: %u",
 		ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode), wr_id.index,
 		wr_id.type);
 
 	req = xnvme_be_nvmf_req_get(qpair->req_pool, wr_id.index);
 	if (!req) {
-		_NVMF_DATA_ERROR("FAILED: xnvme_be_nvmf_req_get() for wr_id index: %u",
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_req_get() for wr_id index: %u",
 				 wr_id.index);
 		return -EIO; // TODO: Find a different error code
 	}
@@ -80,7 +79,7 @@ _handle_send_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc)
 	req->cmpl_type = XNVME_BE_NVMF_REQ_CMPL_TYPE_SEND;
 	req->status = wc->status;
 	if (wc->status != IBV_WC_SUCCESS) {
-		_NVMF_DATA_ERROR("FAILED: send WC error: %s", ibv_wc_status_str(wc->status));
+		NVMF_ERROR("FAILED: send WC error: %s", ibv_wc_status_str(wc->status));
 	}
 
 	return status;
@@ -111,7 +110,7 @@ _repost_recv_buffer(struct xnvme_be_nvmf_rdma_qpair *rdma_qpair, uint64_t index,
 
 	err = ibv_post_recv(rdma_qpair->cm_id->qp, &recv_wr, &bad_recv_wr);
 	if (err) {
-		_NVMF_DATA_ERROR("FAILED: ibv_post_recv() to re-post slot, err: %d", err);
+		NVMF_ERROR("FAILED: ibv_post_recv() to re-post slot, err: %d", err);
 		return err;
 	}
 
@@ -126,13 +125,13 @@ _handle_recv_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc)
 	void *buf;
 	int err;
 
-	_NVMF_DATA_DEBUG("INFO: Work completion, status: %s, opcode: %s, byte_len: %u, wr_id "
+	NVMF_DEBUG("INFO: Work completion, status: %s, opcode: %s, byte_len: %u, wr_id "
 			 "index: %u, type: %u",
 			 ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode),
 			 wc->byte_len, wr_id.index, wr_id.type);
 
 	if (wc->status != IBV_WC_SUCCESS) {
-		_NVMF_DATA_ERROR("FAILED: recv WC error: %s", ibv_wc_status_str(wc->status));
+		NVMF_ERROR("FAILED: recv WC error: %s", ibv_wc_status_str(wc->status));
 		qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR; // TODO: Cannot track which request
 							     // caused the error, so ignore for now
 							     // and mark the qpair as dead.
@@ -145,13 +144,13 @@ _handle_recv_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc)
 
 	err = xnvme_be_nvmf_rdma_top_recv_complete(qpair, buf, qpair->attr.completion_size);
 	if (err) {
-		_NVMF_DATA_ERROR("FAILED: xnvme_be_nvmf_rdma_top_recv_complete(), err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_rdma_top_recv_complete(), err: %d", err);
 		return err;
 	}
 
 	err = _repost_recv_buffer(rdma_qpair, wr_id.index, wc);
 	if (err) {
-		_NVMF_DATA_ERROR("FAILED: _repost_recv_buffer(), err: %d", err);
+		NVMF_ERROR("FAILED: _repost_recv_buffer(), err: %d", err);
 		return err;
 	}
 
@@ -161,8 +160,8 @@ _handle_recv_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc)
 static inline void
 _handle_ibv_poll_error(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc, int err)
 {
-	_NVMF_DATA_ERROR("FAILED: ibv_poll_cq() for cq, err: %d", err);
-	_NVMF_DATA_DEBUG("INFO: ibv_poll_cq() returned error, wc status: %s, opcode: %s, "
+	NVMF_ERROR("FAILED: ibv_poll_cq() for cq, err: %d", err);
+	NVMF_DEBUG("INFO: ibv_poll_cq() returned error, wc status: %s, opcode: %s, "
 			 "byte_len: %u, wr_id index: %u, type: %u",
 			 ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode),
 			 wc->byte_len, wc->wr_id, 0);
@@ -193,7 +192,7 @@ _process_completions(struct xnvme_be_nvmf_qpair *qpair, struct ibv_cq *cq,
 
 		err = handle_cmpl(qpair, &wc);
 		if (err) {
-			_NVMF_DATA_ERROR("FAILED: handle_cmpl(), err: %d", err);
+			NVMF_ERROR("FAILED: handle_cmpl(), err: %d", err);
 			return -err;
 		}
 
@@ -228,18 +227,18 @@ _progress_all_completion_queues(struct xnvme_be_nvmf_qpair *qpair)
 
 	err = _process_send_completions(qpair, 0);
 	if (err < 0) {
-		_NVMF_DATA_ERROR("FAILED: _process_send_completions(), err: %d", err);
+		NVMF_ERROR("FAILED: _process_send_completions(), err: %d", err);
 		return err;
 	} else if (err > 0) {
-		_NVMF_DATA_DEBUG("INFO: Processed %d send completions", err);
+		NVMF_DEBUG("INFO: Processed %d send completions", err);
 	}
 
 	err = _process_recv_completions(qpair, 0);
 	if (err < 0) {
-		_NVMF_DATA_ERROR("FAILED: _process_recv_completions(), err: %d", err);
+		NVMF_ERROR("FAILED: _process_recv_completions(), err: %d", err);
 		return err;
 	} else if (err > 0) {
-		_NVMF_DATA_DEBUG("INFO: Processed %d receive completions", err);
+		NVMF_DEBUG("INFO: Processed %d receive completions", err);
 	}
 
 	return err;

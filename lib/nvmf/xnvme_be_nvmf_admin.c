@@ -19,8 +19,7 @@
 #include <xnvme_be_nvmf_req.h>
 #include <xnvme_be_nvmf_debug.h>
 
-#define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_CMD_ADMIN, fmt, ##__VA_ARGS__)
-#define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CMD_ADMIN, fmt, ##__VA_ARGS__)
+#define NVMF_DEBUG_CATEGORY NVMF_DEBUG_CATEGORY_CMD_ADMIN
 
 static inline int
 _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx,
@@ -34,10 +33,10 @@ _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cm
 	void *handle;
 	uint32_t key;
 	int err;
-
-	_NVMF_DEBUG("INFO: Preparing IDFY command with dbuf at %p, cntlid: %zu", dbuf,
+	
+	NVMF_DEBUG("INFO: Preparing IDFY command with dbuf at %p, cntlid: %zu", dbuf,
 		    qpair->cntlid);
-	_NVMF_DEBUG("INFO: CNS value: 0x%x", cmd->idfy.cns);
+	NVMF_DEBUG("INFO: CNS value: 0x%x", cmd->idfy.cns);
 
 	enum xnvme_idfy_cns {
 		XNVME_IDFY_CNS_NS = 0x0,
@@ -62,8 +61,9 @@ _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cm
 	case XNVME_IDFY_CNS_IOCSI_ACTIVE_NS:
 	case XNVME_IDFY_CNS_IOCSI_INDEP_NS:
 		// Do nothing for now
-		_NVMF_DEBUG("INFO: CNS value indicates a namespace-related identify command");
-		_NVMF_DEBUG("INFO: namespace=%u", cmd->common.nsid);
+		NVMF_DEBUG("INFO: CNS value indicates a namespace-related identify command");
+		NVMF_DEBUG("INFO: namespace=%u", cmd->common.nsid);
+		break;
 	default:
 		cmd->common.nsid = 0; // default value for other CNS values
 		break;
@@ -83,8 +83,9 @@ _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cm
 	case XNVME_IDFY_CNS_IOCSI_ACTIVE_NS:
 	case XNVME_IDFY_CNS_NS_FMT:
 	case XNVME_IDFY_CNS_IOCSI_NS_FMT:
-		_NVMF_DEBUG("INFO: CNS value indicates a Command Set Specific identify command");
-		_NVMF_DEBUG("INFO: csi=%u", cmd->idfy.csi);
+		NVMF_DEBUG("INFO: CNS value indicates a Command Set Specific identify command");
+		NVMF_DEBUG("INFO: csi=%u", cmd->idfy.csi);
+		break;
 	default:
 		cmd->idfy.csi = 0; // default value for other CNS values
 		break;
@@ -92,11 +93,11 @@ _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cm
 
 	err = xnvme_be_nvmf_ctrlr_reg(ctrlr, dbuf, dbuf_nbytes, &handle, &key);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_reg() for data buffer, err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_reg() for data buffer, err: %d", err);
 		return err;
 	}
 
-	_NVMF_DEBUG("INFO: Command before sending:");
+	NVMF_DEBUG("INFO: Command before sending:");
 	_hexdump_range(NVMF_DEBUG_CATEGORY_CMD_ADMIN, cmd, sizeof(*cmd));
 
 	cmd->common.psdt = 0b10;
@@ -108,16 +109,16 @@ _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cm
 	sgl->keyed.type = XNVME_SPEC_SGL_DESCR_TYPE_KEYED_DATA_BLOCK;
 	sgl->keyed.subtype = XNVME_SPEC_SGL_DESCR_SUBTYPE_ADDRESS;
 
-	_NVMF_DEBUG("INFO: SGL address: %p", (void *)sgl->addr);
+	NVMF_DEBUG("INFO: SGL address: %p", (void *)sgl->addr);
 	_hexdump_range(NVMF_DEBUG_CATEGORY_CMD_ADMIN, &sgl->addr, sizeof(sgl->addr));
-	_NVMF_DEBUG("INFO: SGL length: %zu", sgl->keyed.len);
-	_NVMF_DEBUG("INFO: SGL key: 0x%x", sgl->keyed.key);
-	_NVMF_DEBUG("INFO: SGL type: 0x%x", sgl->keyed.type);
-	_NVMF_DEBUG("INFO: SGL subtype: 0x%x", sgl->keyed.subtype);
+	NVMF_DEBUG("INFO: SGL length: %zu", sgl->keyed.len);
+	NVMF_DEBUG("INFO: SGL key: 0x%x", sgl->keyed.key);
+	NVMF_DEBUG("INFO: SGL type: 0x%x", sgl->keyed.type);
+	NVMF_DEBUG("INFO: SGL subtype: 0x%x", sgl->keyed.subtype);
 
 	err = xnvme_be_nvmf_qpair_submit(qpair, cmd, sizeof(struct xnvme_spec_cmd), req->cid);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_submit(), err: %d", err);
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_submit(), err: %d", err);
 		xnvme_be_nvmf_ctrlr_dereg(ctrlr, handle);
 		return err;
 	}
@@ -139,12 +140,12 @@ _xnvme_be_nvmf_admin_cmd_admin(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbu
 	void *handle = NULL;
 	int err = 0;
 
-	_NVMF_DEBUG("INFO: admin_cmd() for NVMe-oF device: %s", ctx->dev->ident.uri);
-	_NVMF_DEBUG("INFO: opcode: 0x%x, nsid: %d", ctx->cmd.common.opcode, ctx->cmd.common.nsid);
+	NVMF_DEBUG("INFO: admin_cmd() for NVMe-oF device: %s", ctx->dev->ident.uri);
+	NVMF_DEBUG("INFO: opcode: 0x%x, nsid: %d", ctx->cmd.common.opcode, ctx->cmd.common.nsid);
 
 	req = xnvme_be_nvmf_req_alloc(qpair->req_pool, false, (void *)ctx);
 	if (!req) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_req_alloc()");
+		NVMF_ERROR("FAILED: xnvme_be_nvmf_req_alloc()");
 		return -ENOSPC;
 	}
 
@@ -157,7 +158,7 @@ _xnvme_be_nvmf_admin_cmd_admin(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbu
 		//_hexdump_range(dbuf, dbuf_nbytes);
 		err = _xnvme_be_nvmf_admin_cmd_idfy(qpair, ctx, req, dbuf, dbuf_nbytes, &handle);
 		if (err) {
-			_NVMF_ERROR("FAILED: _xnvme_be_nvmf_admin_cmd_idfy(), err: %d", err);
+			NVMF_ERROR("FAILED: _xnvme_be_nvmf_admin_cmd_idfy(), err: %d", err);
 		}
 
 		_print_nvme_completion(&ctx->cpl);
@@ -165,7 +166,7 @@ _xnvme_be_nvmf_admin_cmd_admin(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbu
 		break;
 	case XNVME_SPEC_ADM_OPC_GFEAT:
 	default:
-		_NVMF_ERROR("FAILED: ENOSYS opcode: %d", ctx->cmd.common.opcode);
+		NVMF_ERROR("FAILED: ENOSYS opcode: %d", ctx->cmd.common.opcode);
 		err = -ENOSYS;
 		break;
 	}
