@@ -19,47 +19,6 @@
 #define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_CORE_QPAIR, fmt, ##__VA_ARGS__)
 #define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CORE_QPAIR, fmt, ##__VA_ARGS__)
 
-#if 0
-static void
-_xnvme_be_nvmf_on_send_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_be_nvmf_req *req, int status)
-{	
-	return; // no-op
-}
-
-static void
-_xnvme_be_nvmf_on_recv_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_be_nvmf_req *req, int status)
-{
-	struct xnvme_cmd_ctx *ctx = req->context;
-	XNVME_DEBUG("INFO: Receive completion received for req: %p, status: %d", req, status);
-	assert(qpair != NULL);
-	assert(req != NULL);
-
-	switch(req->type) {
-		case XNVME_BE_NVMF_REQ_TYPE_USER:
-			XNVME_DEBUG("INFO: User request receive completed");
-			if (ctx->opts & XNVME_CMD_ASYNC) {
-				/* Handle asynchronous completion */
-				struct xnvme_be_nvmf_queue *async_queue = (struct xnvme_be_nvmf_queue *) ctx->async.queue;
-				async_queue->base.outstanding--;
-				async_queue->completions_pending++;
-
-				if (ctx->async.cb) {
-					ctx->async.cb(ctx, ctx->async.cb_arg);
-				}
-			}
-			break;
-		case XNVME_BE_NVMF_REQ_TYPE_INTERNAL:
-			XNVME_DEBUG("INFO: Internal request receive completed");
-			break;
-		default:
-			XNVME_DEBUG("INFO: Unknown request type receive completed");
-			qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;
-			break;
-	}
-	return;
-}
-#endif
-
 int
 xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *dev,
 			   struct xnvme_be_nvmf_qpair_attr *attr,

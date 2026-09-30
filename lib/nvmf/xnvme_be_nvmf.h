@@ -32,16 +32,15 @@ struct xnvme_be_nvmf_queue {
 	struct xnvme_be_nvmf_qpair *qpair;
 	uint8_t be_rsvd[216]; ///< Auxilary backend data
 };
-XNVME_STATIC_ASSERT(sizeof(struct xnvme_be_nvmf_queue) == sizeof(struct xnvme_queue), 
-	"Incorrect size of xnvme_be_nvmf_queue");
-
+XNVME_STATIC_ASSERT(sizeof(struct xnvme_be_nvmf_queue) == sizeof(struct xnvme_queue),
+		    "Incorrect size of xnvme_be_nvmf_queue");
 
 struct xnvme_be_nvmf_state {
-	void *ctrlr; ///< Pointer to attached controller (must be first: platform
-		     ///< stores ctrlr at state[0])
-	void *ns;    ///< Pointer to associated namespace
+	void *ctrlr;       ///< Pointer to attached controller (must be first: platform
+			   ///< stores ctrlr at state[0])
+	void *ns;          ///< Pointer to associated namespace
 	void *admin_qpair; ///< Admin queue pair
-	void *sync_qpair; ///< Synchronous IO queue pair
+	void *sync_qpair;  ///< Synchronous IO queue pair
 	uint8_t _rsvd0[30];
 
 	union {

@@ -512,24 +512,5 @@ xnvme_be_nvmf_fabric_enable(struct xnvme_be_nvmf_ctrlr *ctrlr,
 
 	_NVMF_DEBUG("INFO: Controller CSTS Ready: %d", csts.rdy);
 
-#if 0
-
-
-	// enable controller
-	_perform_property_set(); // CC.EN
-
-	// spin on CC.EN until the controller is ready
-	_perform_property_get(); // CC.EN
-
-	// determine configuration of controller by issuing identify command specificing the
-	// Identify Controller data structure (i.e., CNS 01h)
-
-	// Host deterines any i/o command set specific configuration information
-
-	// Host determines maximum I/O queue size using CAP.MQES
-
-	// Host determines the number of I/O queues supported by the controlled using the response
-	// fromt he set features command with the number of queues feature identifier.
-#endif
 	return 0;
 }
