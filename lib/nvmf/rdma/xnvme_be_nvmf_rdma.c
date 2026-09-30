@@ -18,8 +18,8 @@ void
 xnvme_be_nvmf_rdma_on_capsule_recv(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len)
 {
 	struct xnvme_spec_cpl *cpl = buf;
-	struct xnvme_be_nvmf_connect_response_cpl *connect_cpl =
-		(struct xnvme_be_nvmf_connect_response_cpl *)cpl;
+	struct xnvme_spec_fabric_connect_resp_cpl *connect_cpl =
+		(struct xnvme_spec_fabric_connect_resp_cpl *)cpl;
 	struct xnvme_be_nvmf_req *req = NULL;
 	struct xnvme_cmd_ctx *cmd_ctx = NULL;
 
