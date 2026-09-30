@@ -164,9 +164,10 @@ _handle_fabric_connect(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len)
 	return;
 }
 
-static int
-_perform_property_get(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_be_nvmf_qpair *admin_qpair,
-		      uint32_t property, uint64_t *value)
+int
+xnvme_be_nvmf_fabric_prop_get(struct xnvme_be_nvmf_ctrlr *ctrlr,
+			      struct xnvme_be_nvmf_qpair *admin_qpair, uint32_t property,
+			      uint64_t *value)
 {
 	struct xnvme_cmd_ctx ctx = xnvme_cmd_ctx_from_dev(admin_qpair->dev);
 	struct xnvme_spec_fabric_cmd *fcmd = (struct xnvme_spec_fabric_cmd *)&ctx.cmd;
@@ -249,9 +250,10 @@ _perform_property_get(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_be_nvmf_qp
 	return 0;
 }
 
-static int
-_perform_property_set(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_be_nvmf_qpair *admin_qpair,
-		      uint32_t property, uint64_t value)
+int
+xnvme_be_nvmf_fabric_prop_set(struct xnvme_be_nvmf_ctrlr *ctrlr,
+			      struct xnvme_be_nvmf_qpair *admin_qpair, uint32_t property,
+			      uint64_t value)
 {
 	struct xnvme_cmd_ctx ctx = xnvme_cmd_ctx_from_dev(admin_qpair->dev);
 	struct xnvme_spec_fabric_cmd *fcmd = (struct xnvme_spec_fabric_cmd *)&ctx.cmd;
@@ -341,7 +343,7 @@ _encode_fabric_connect_data(struct xnvme_be_nvmf_qpair *qpair, void *buf)
 }
 
 int
-xnvme_be_nvmf_send_fabric_connect_command(struct xnvme_be_nvmf_qpair *qpair)
+xnvme_be_nvmf_fabric_connect(struct xnvme_be_nvmf_qpair *qpair)
 {
 	struct xnvme_spec_fabric_connect_data *connect_data;
 	struct xnvme_be_nvmf_req *req = NULL;
@@ -349,10 +351,9 @@ xnvme_be_nvmf_send_fabric_connect_command(struct xnvme_be_nvmf_qpair *qpair)
 	struct xnvme_spec_cmd *cmd = &ctx.cmd;
 	struct xnvme_spec_fabric_cmd *fcmd = (struct xnvme_spec_fabric_cmd *)&ctx.cmd;
 	struct xnvme_spec_sgl_descriptor *sgl = &fcmd->connect.sgl1;
-	void *handle;
+	void *handle = NULL;
 	void *buffer = NULL;
-	uint64_t lkey = 0;
-	uint64_t rkey = 0;
+	uint32_t rkey = 0;
 	int err;
 
 	buffer = xnvme_buf_virt_alloc(0x1000, sizeof(*connect_data));
@@ -362,18 +363,14 @@ xnvme_be_nvmf_send_fabric_connect_command(struct xnvme_be_nvmf_qpair *qpair)
 		return -ENOMEM;
 	}
 
-	if (qpair->ops->reg_mr) {
-		err = qpair->ops->reg_mr(qpair, buffer, sizeof(*connect_data), &handle, &lkey,
-					 &rkey);
-		if (err) {
-			_NVMF_ERROR("FAILED: reg_mr() for connect_data");
-			err = -EIO;
-			goto free_data_buffer;
-		}
+	err = xnvme_be_nvmf_ctrlr_reg(qpair->ctrlr, buffer, sizeof(*connect_data), &handle, &rkey);
+	if (err) {
+		_NVMF_ERROR("FAILED: ctrlr_reg() for connect_data");
+		err = -EIO;
+		goto free_data_buffer;
 	}
-	_NVMF_DEBUG("INFO: Fabric connect data buffer allocated at %p, size: %zu, lkey: %" PRIu64
-		    ", rkey: %" PRIu64,
-		    buffer, sizeof(*connect_data), lkey, rkey);
+	_NVMF_DEBUG("INFO: Fabric connect data buffer allocated at %p, size: %zu, rkey: %" PRIu32,
+		    buffer, sizeof(*connect_data), rkey);
 
 	req = xnvme_be_nvmf_req_internal_alloc(qpair->req_pool, false, (void *)&ctx);
 	if (!req) {
@@ -423,16 +420,13 @@ xnvme_be_nvmf_send_fabric_connect_command(struct xnvme_be_nvmf_qpair *qpair)
 
 	xnvme_be_nvmf_req_free(qpair->req_pool, req);
 
-	if (qpair->ops->dereg_mr && handle)
-		qpair->ops->dereg_mr(qpair, handle);
+	xnvme_be_nvmf_ctrlr_dereg(qpair->ctrlr, handle);
 
 	xnvme_buf_virt_free(buffer);
 	return 0;
 
 dereg_data_buffer:
-	if (qpair->ops->dereg_mr) {
-		qpair->ops->dereg_mr(qpair, handle);
-	}
+	xnvme_be_nvmf_ctrlr_dereg(qpair->ctrlr, handle);
 free_data_buffer:
 	xnvme_buf_virt_free(buffer);
 	qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;
@@ -440,8 +434,8 @@ free_data_buffer:
 }
 
 int
-xnvme_be_nvmf_initialize_remote_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr,
-				      struct xnvme_be_nvmf_qpair *admin_qpair)
+xnvme_be_nvmf_fabric_enable(struct xnvme_be_nvmf_ctrlr *ctrlr,
+			    struct xnvme_be_nvmf_qpair *admin_qpair)
 {
 	struct nvme_ctrlr_cap cap;
 	struct nvme_ctrlr_cc cc;
@@ -450,14 +444,14 @@ xnvme_be_nvmf_initialize_remote_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr,
 	int err;
 
 	// determine controller capabilities
-	err = _perform_property_get(ctrlr, admin_qpair, XNVME_SPEC_FABRIC_PROP_CAP, &val);
+	err = xnvme_be_nvmf_fabric_prop_get(ctrlr, admin_qpair, XNVME_SPEC_FABRIC_PROP_CAP, &val);
 	if (err) {
 		_NVMF_ERROR("FAILED: get CAP, err: %d", err);
 		return err;
 	}
 	cap.raw = val;
 
-	err = _perform_property_get(ctrlr, admin_qpair, XNVME_SPEC_FABRIC_PROP_CC, &val);
+	err = xnvme_be_nvmf_fabric_prop_get(ctrlr, admin_qpair, XNVME_SPEC_FABRIC_PROP_CC, &val);
 	if (err) {
 		_NVMF_ERROR("FAILED: get CC, err: %d", err);
 		return err;
@@ -493,8 +487,8 @@ xnvme_be_nvmf_initialize_remote_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr,
 
 	cc.en = 1; // enable controller
 
-	err = _perform_property_set(ctrlr, admin_qpair, XNVME_SPEC_FABRIC_PROP_CC,
-				    (uint64_t)cc.raw);
+	err = xnvme_be_nvmf_fabric_prop_set(ctrlr, admin_qpair, XNVME_SPEC_FABRIC_PROP_CC,
+					    (uint64_t)cc.raw);
 	if (err) {
 		_NVMF_ERROR("FAILED: set CC, err: %d", err);
 		return err;
@@ -503,7 +497,8 @@ xnvme_be_nvmf_initialize_remote_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr,
 	while (!csts.rdy) {
 		csts.rdy = 0;
 
-		err = _perform_property_get(ctrlr, admin_qpair, XNVME_SPEC_FABRIC_PROP_CSTS, &val);
+		err = xnvme_be_nvmf_fabric_prop_get(ctrlr, admin_qpair,
+						    XNVME_SPEC_FABRIC_PROP_CSTS, &val);
 		if (err) {
 			XNVME_DEBUG("FAILED: get CSTS, err: %d", err);
 			return err;

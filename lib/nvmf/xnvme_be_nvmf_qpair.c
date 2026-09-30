@@ -120,7 +120,7 @@ xnvme_be_nvmf_qpair_connect(struct xnvme_be_nvmf_qpair *qpair)
 	// complete.
 	assert(qpair->state == XNVME_NVMF_QPAIR_STATE_CONNECTED);
 
-	err = xnvme_be_nvmf_send_fabric_connect_command(qpair);
+	err = xnvme_be_nvmf_fabric_connect(qpair);
 	if (err) {
 		_NVMF_ERROR("FAILED: send fabric connect command, err: %d", err);
 		return err;

@@ -9,11 +9,11 @@
 #include <xnvme_be_nvmf_fabric.h>
 #include <xnvme_be_nvmf_debug.h>
 
-#define _NVMF_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
-#define _NVMF_INFO(fmt,...) NVMF_INFO(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
-#define _NVMF_WARN(fmt,...) NVMF_WARN(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
-#define _NVMF_ERROR(fmt,...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
-#define _NVMF_TRACE(fmt,...) NVMF_TRACE(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
+#define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
+#define _NVMF_INFO(fmt, ...) NVMF_INFO(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
+#define _NVMF_WARN(fmt, ...) NVMF_WARN(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
+#define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
+#define _NVMF_TRACE(fmt, ...) NVMF_TRACE(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
 
 /**
  * Maximum number of attempts to probe for a device matching the provided URI.
@@ -53,7 +53,7 @@ xnvme_be_nvmf_ctrlr_connect(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 
 	return err;
 }
-                                
+
 int
 xnvme_be_nvmf_ctrlr_disconnect(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
@@ -70,54 +70,51 @@ xnvme_be_nvmf_ctrlr_disconnect(struct xnvme_be_nvmf_ctrlr *ctrlr)
 	return -ENOSYS;
 }
 
-
 int
 xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
-	struct xnvme_be_nvmf_ctrlr_attr *attr,
-	struct xnvme_be_nvmf_ctrlr **ctrlr)
+			   struct xnvme_be_nvmf_ctrlr_attr *attr,
+			   struct xnvme_be_nvmf_ctrlr **ctrlr)
 {
-    struct xnvme_be_nvmf_ctrlr *tmp = NULL;
-    struct xnvme_be_nvmf_qpair_attr default_qpair_attr = {
-        .qid = XNVME_BE_NVMF_ADMIN_QUEUE_ID,
-        .qsize = 8,
-        .capsule_size = NVME_CMD_CAPSULE_SIZE,
-        .completion_size = NVME_CPL_CAPSULE_SIZE,
-    };
+	struct xnvme_be_nvmf_ctrlr *tmp = NULL;
+	struct xnvme_be_nvmf_qpair_attr default_qpair_attr = {
+		.qid = XNVME_BE_NVMF_ADMIN_QUEUE_ID,
+		.qsize = 8,
+		.capsule_size = NVME_CMD_CAPSULE_SIZE,
+		.completion_size = NVME_CPL_CAPSULE_SIZE,
+	};
 
-    if (!transport || !attr || !ctrlr) {
-        _NVMF_ERROR("FAILED: Invalid arguments");
-        return -EINVAL;
-    }
+	if (!transport || !attr || !ctrlr) {
+		_NVMF_ERROR("FAILED: Invalid arguments");
+		return -EINVAL;
+	}
 
-    if (!attr->dev) {
-        _NVMF_ERROR("FAILED: Invalid device in controller attributes");
-        return -EINVAL;
-    }
+	if (!attr->dev) {
+		_NVMF_ERROR("FAILED: Invalid device in controller attributes");
+		return -EINVAL;
+	}
 
 	int err = transport->ops.create_ctrlr(&tmp);
 	if (err) {
-        _NVMF_ERROR("FAILED: transport->ops.create_ctrlr(), err: %d", err);
-        return err;
-    }
+		_NVMF_ERROR("FAILED: transport->ops.create_ctrlr(), err: %d", err);
+		return err;
+	}
 
-    tmp->ctrlr_id = attr->ctrlr_id;
-    tmp->transport = transport;
+	tmp->ctrlr_id = attr->ctrlr_id;
+	tmp->transport = transport;
 	tmp->ctrlr_state = XNVME_NVMF_CTRLR_STATE_INIT;
 	tmp->discovery_ctrlr = strlen(attr->dev->ident.subnqn) == 0 ? 1 : 0;
-    tmp->last_allocated_queue_id = XNVME_BE_NVMF_IO_QUEUE_ID_START;
+	tmp->last_allocated_queue_id = XNVME_BE_NVMF_IO_QUEUE_ID_START;
 	tmp->attached = 0;
-    
-    _NVMF_INFO("INFO: ctrlr->discovery_ctrlr set to %d based on dev->ident.subnqn=\"%s\"",
-	    tmp->discovery_ctrlr, attr->dev->ident.subnqn);
 
-    err = xnvme_be_nvmf_qpair_create(tmp, attr->dev, &default_qpair_attr,
-					      &tmp->admin_qpair);
+	_NVMF_INFO("INFO: ctrlr->discovery_ctrlr set to %d based on dev->ident.subnqn=\"%s\"",
+		   tmp->discovery_ctrlr, attr->dev->ident.subnqn);
+
+	err = xnvme_be_nvmf_qpair_create(tmp, attr->dev, &default_qpair_attr, &tmp->admin_qpair);
 	if (err) {
-		_NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_create() for admin_qpair, err: %d",
-			    err);
-        free(tmp);
-        return err;
-    }
+		_NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_create() for admin_qpair, err: %d", err);
+		free(tmp);
+		return err;
+	}
 
 	*ctrlr = tmp;
 	return err;
@@ -136,8 +133,9 @@ xnvme_be_nvmf_ctrlr_destroy(struct xnvme_be_nvmf_ctrlr *ctrlr)
 }
 
 static inline int
-xnvme_be_nvmf_transport_probe(struct xnvme_be_nvmf_transport *transport, 
-	struct xnvme_be_nvmf_ctrlr_attr *attr, struct xnvme_be_nvmf_ctrlr **ctrlr)
+xnvme_be_nvmf_transport_probe(struct xnvme_be_nvmf_transport *transport,
+			      struct xnvme_be_nvmf_ctrlr_attr *attr,
+			      struct xnvme_be_nvmf_ctrlr **ctrlr)
 {
 	struct xnvme_be_nvmf_ctrlr *tmp_ctrlr;
 	int err;
@@ -163,17 +161,16 @@ destroy_controller:
 	return err;
 }
 
-
-static inline void 
+static inline void
 _dump_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
-	_NVMF_DEBUG("INFO: ctrlr: \n" \
-		"\tctrlr_id: %d\n" \
-		"\tctrlr_state: %d" \
-		"\tattached: %d\n" \
-		"\tdiscovery_ctrlr: %d",
-		    ctrlr->admin_qpair->cntlid, ctrlr->ctrlr_state,
-		    ctrlr->attached, ctrlr->discovery_ctrlr);
+	_NVMF_DEBUG("INFO: ctrlr: \n"
+		    "\tctrlr_id: %d\n"
+		    "\tctrlr_state: %d"
+		    "\tattached: %d\n"
+		    "\tdiscovery_ctrlr: %d",
+		    ctrlr->admin_qpair->cntlid, ctrlr->ctrlr_state, ctrlr->attached,
+		    ctrlr->discovery_ctrlr);
 }
 
 /**
@@ -210,14 +207,14 @@ xnvme_be_nvmf_ctrlr_probe(struct xnvme_dev *dev, struct xnvme_be_nvmf_ctrlr **ct
 			err = xnvme_be_nvmf_transport_probe(*transport, &attr, &tmp_ctrlr);
 			if (!err) {
 				_NVMF_INFO("INFO: Successfully connected to transport: %s",
-					    dev->ident.uri);
+					   dev->ident.uri);
 				_NVMF_INFO("INFO: transport->probe() successful, device is "
-					    "reachable and supports NVMe-oF");
+					   "reachable and supports NVMe-oF");
 				break;
 			} else {
 				_NVMF_INFO("INFO: transport->probe() failed for transport: %s, "
-					    "err: %d",
-					    (*transport)->name, err);
+					   "err: %d",
+					   (*transport)->name, err);
 			}
 		}
 	}
@@ -236,8 +233,7 @@ free_ctrlr_id:
 
 /**
  * Sets CC.EN and waits on CSTS.RDY, through Fabrics Property Get and Set on
- * the admin qpair. Forwards to `xnvme_be_nvmf_initialize_remote_ctrlr()`
- * (fabric.c), which task 6 renames in place.
+ * the admin qpair. Forwards to `xnvme_be_nvmf_fabric_enable()` (fabric.c).
  */
 int
 xnvme_be_nvmf_ctrlr_enable(struct xnvme_be_nvmf_ctrlr *ctrlr)
@@ -247,12 +243,12 @@ xnvme_be_nvmf_ctrlr_enable(struct xnvme_be_nvmf_ctrlr *ctrlr)
 		return -EINVAL;
 	}
 
-	return xnvme_be_nvmf_initialize_remote_ctrlr(ctrlr, ctrlr->admin_qpair);
+	return xnvme_be_nvmf_fabric_enable(ctrlr, ctrlr->admin_qpair);
 }
 
 /**
- * Clears CC.EN. No flow calls this yet; matches the current fabric.c, which
- * has no counterpart to `xnvme_be_nvmf_initialize_remote_ctrlr()`.
+ * Clears CC.EN. No flow calls this yet; design.md's control flows do not
+ * describe a disable sequence, so this stays an -ENOSYS stub (task 4).
  */
 int
 xnvme_be_nvmf_ctrlr_disable(struct xnvme_be_nvmf_ctrlr *ctrlr)
@@ -302,7 +298,7 @@ xnvme_be_nvmf_dev_ctrlr_init(struct xnvme_dev *dev)
 	int err;
 
 	_NVMF_INFO("INFO: dev_ctrlr_init() for NVMe-oF device: %s, ns=%u, discovery=%s",
-		    dev->ident.uri, dev->ident.nsid, dev->ident.nsid == 0 ? "yes" : "no");
+		   dev->ident.uri, dev->ident.nsid, dev->ident.nsid == 0 ? "yes" : "no");
 
 	if (state->ctrlr) {
 		_NVMF_INFO("INFO: Controller already initialized, reusing existing controller");
