@@ -6,7 +6,7 @@
 #include <xnvme_be_nvmf_req.h>
 
 struct xnvme_be_nvmf_qpair;
-struct xnvme_be_nvmf_qpair_ops;
+struct xnvme_be_nvmf_transport_ops;
 struct xnvme_spec_cpl;
 
 enum xnvme_nvmf_qpair_state {
@@ -21,26 +21,6 @@ enum xnvme_nvmf_qpair_state {
 	XNVME_NVMF_QPAIR_STATE_MAX = XNVME_NVMF_QPAIR_STATE_ERROR,
 };
 
-/**
- * on_capsule_recv  -- a capsule arrived; buf/len are valid until the callback returns.
- *                     Fires in transport delivery order, which is NOT guaranteed to match
- *                     command posting order; the protocol layer must match on CID.
- *
- * on_send_cmpl     -- the transport is done with buf; the caller may reclaim it.
- *                     buf echoes the pointer from send_capsule, serving as the identifier.
- *                     Fires in posting order for both RDMA (RC QP CQ ordering) and TCP
- *                     (sequential send path). Does NOT indicate the peer processed the
- *                     command; use on_capsule_recv and CID matching for that.
- *
- * on_state_change  -- the transport-level state transitioned to @state.
- */
-typedef void (*xnvme_be_nvmf_capsule_recv_fn)(struct xnvme_be_nvmf_qpair *qpair, void *buf,
-					      size_t len);
-typedef void (*xnvme_be_nvmf_send_cmpl_fn)(struct xnvme_be_nvmf_qpair *qpair, void *buf,
-					   int status);
-typedef void (*xnvme_be_nvmf_state_change_fn)(struct xnvme_be_nvmf_qpair *qpair,
-					      enum xnvme_nvmf_qpair_state state, void *ctx);
-
 struct xnvme_be_nvmf_qpair_attr {
 	uint16_t qid;
 	uint16_t qsize;
@@ -49,67 +29,35 @@ struct xnvme_be_nvmf_qpair_attr {
 };
 
 struct xnvme_be_nvmf_qpair {
-	struct xnvme_be_nvmf_qpair_ops *ops;
+	const struct xnvme_be_nvmf_transport_ops *ops;
 	enum xnvme_nvmf_qpair_state state;
 	struct xnvme_be_nvmf_qpair_attr attr;
 	uint16_t cntlid; /* assigned by the controller in the Fabric Connect response */
 	struct xnvme_be_nvmf_req_pool *req_pool;
 	struct xnvme_be_nvmf_ctrlr *ctrlr;
 	struct xnvme_dev *dev; ///< Pointer to the underlying xNVMe device
-
-	xnvme_be_nvmf_capsule_recv_fn on_capsule_recv;
-	xnvme_be_nvmf_send_cmpl_fn on_send_cmpl;
-	xnvme_be_nvmf_state_change_fn on_state_change;
 };
 
 /**
- * Transport-level ops table. Each entry covers exactly one transport
- * primitive; nothing above the capsule boundary belongs here.
+ * Core ctrlr/qpair lifecycle and the hot-path submit/poll wrappers.
  *
  * connect / disconnect / destroy
  *   Manage the lifetime of the underlying transport connection. On connect the
  *   transport must pre-post receive buffers before returning. These are owned
- *   by the transport; the protocol layer never calls post_recv for them. When
- *   a reserve buffer is consumed the transport re-posts it before invoking
- *   on_capsule_recv so the pool never drains.
+ *   by the transport; the protocol layer never calls post_recv for them.
  *
  * qpair_submit
  *   Post one capsule (capsule, nbytes) onto the send queue, with @cid going
- *   into the transport work request identifier. The caller owns the buffer
- *   until on_send_cmpl fires. The transport does not interpret the bytes.
- *
- * post_recv
- *   Hand a receive buffer to the transport for the normal command-response
- *   path. The transport fills it and fires on_capsule_recv when a capsule
- *   arrives. The caller owns the buffer after the callback returns. Must not
- *   be used to manage the async reserve; that is transport-internal.
+ *   into the transport work request identifier. The caller may reuse the
+ *   buffer as soon as `qpair_submit` returns. The transport does not
+ *   interpret the bytes.
  *
  * qpair_poll
- *   Drive the transport's completion machinery. Fires the registered callbacks
- *   for every completed send and every received capsule. Returns the number
- *   of completions processed, or a negative errno on error.
+ *   Drive the transport's completion machinery. For every received response
+ *   capsule it calls `xnvme_be_nvmf_qpair_complete()`, the only up-call from
+ *   the transport into the core (design.md section 3). Returns the number of
+ *   completions processed, or a negative errno on error.
  */
-struct xnvme_be_nvmf_qpair_ops {
-	/* control path */
-	int (*connect)(struct xnvme_be_nvmf_qpair *qpair);
-	int (*disconnect)(struct xnvme_be_nvmf_qpair *qpair);
-	int (*destroy)(struct xnvme_be_nvmf_qpair *qpair);
-	int (*reg_mr)(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len, void **handle,
-		      uint64_t *lkey, uint64_t *rkey);
-	int (*dereg_mr)(struct xnvme_be_nvmf_qpair *qpair, void *handle);
-
-	/* data path */
-	int (*cmd_io)(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, void *dbuf,
-		      size_t dbuf_nbytes, void *mbuf, size_t mbuf_nbyte);
-	int (*cmd_iov)(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx,
-		       struct iovec *dvec, size_t dvec_cnt, size_t dvec_nbytes, struct iovec *mvec,
-		       size_t mvec_cnt, size_t mvec_nbyte);
-
-	int (*qpair_poll)(struct xnvme_be_nvmf_qpair *qpair, uint32_t max);
-
-	int (*qpair_submit)(struct xnvme_be_nvmf_qpair *qpair, const void *capsule, size_t nbytes,
-			    uint16_t cid);
-};
 
 int
 xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *dev,

@@ -41,7 +41,7 @@ xnvme_be_nvmf_ctrlr_connect(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 	if (!ctrlr || !uri)
 		return -EINVAL;
 
-	err = ctrlr->ops->connect(ctrlr, uri);
+	err = ctrlr->ops->ctrlr_connect(ctrlr, uri);
 	if (err) {
 		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_connect(), err: %d", err);
 		ctrlr->ctrlr_state = XNVME_NVMF_CTRLR_STATE_ERROR;
@@ -62,8 +62,8 @@ xnvme_be_nvmf_ctrlr_disconnect(struct xnvme_be_nvmf_ctrlr *ctrlr)
 		return -EINVAL;
 	}
 
-	if (ctrlr->ops && ctrlr->ops->disconnect) {
-		return ctrlr->ops->disconnect(ctrlr);
+	if (ctrlr->ops && ctrlr->ops->ctrlr_disconnect) {
+		return ctrlr->ops->ctrlr_disconnect(ctrlr);
 	}
 
 	_NVMF_ERROR("FAILED: No disconnect operation defined for controller");
@@ -93,9 +93,9 @@ xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
 		return -EINVAL;
 	}
 
-	int err = transport->ops.create_ctrlr(&tmp);
+	int err = transport->ops->ctrlr_alloc(&tmp);
 	if (err) {
-		_NVMF_ERROR("FAILED: transport->ops.create_ctrlr(), err: %d", err);
+		_NVMF_ERROR("FAILED: transport->ops->ctrlr_alloc(), err: %d", err);
 		return err;
 	}
 
@@ -109,10 +109,18 @@ xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
 	_NVMF_INFO("INFO: ctrlr->discovery_ctrlr set to %d based on dev->ident.subnqn=\"%s\"",
 		   tmp->discovery_ctrlr, attr->dev->ident.subnqn);
 
+	err = tmp->ops->ctrlr_init(tmp);
+	if (err) {
+		_NVMF_ERROR("FAILED: ctrlr->ops->ctrlr_init(), err: %d", err);
+		tmp->ops->ctrlr_free(tmp);
+		return err;
+	}
+
 	err = xnvme_be_nvmf_qpair_create(tmp, attr->dev, &default_qpair_attr, &tmp->admin_qpair);
 	if (err) {
 		_NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_create() for admin_qpair, err: %d", err);
-		free(tmp);
+		tmp->ops->ctrlr_teardown(tmp);
+		tmp->ops->ctrlr_free(tmp);
 		return err;
 	}
 
@@ -123,13 +131,27 @@ xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
 int
 xnvme_be_nvmf_ctrlr_destroy(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
-	if (ctrlr->ops && ctrlr->ops->destroy) {
-		return ctrlr->ops->destroy(ctrlr);
+	int err;
+
+	if (!ctrlr) {
+		_NVMF_ERROR("FAILED: NULL ctrlr");
+		return -EINVAL;
 	}
 
-	free(ctrlr);
+	err = ctrlr->ops->ctrlr_teardown(ctrlr);
+	if (err) {
+		_NVMF_ERROR("FAILED: ctrlr->ops->ctrlr_teardown(), err: %d", err);
+	}
 
-	return 0;
+	/*
+	 * Free unconditionally, even when teardown fails, so a failed
+	 * teardown does not leak the ctrlr (design.md section 11 catalogues
+	 * the pre-existing leak-on-disconnect-failure bug; this keeps it from
+	 * getting worse).
+	 */
+	ctrlr->ops->ctrlr_free(ctrlr);
+
+	return err;
 }
 
 static inline int
@@ -142,7 +164,7 @@ xnvme_be_nvmf_transport_probe(struct xnvme_be_nvmf_transport *transport,
 
 	err = xnvme_be_nvmf_ctrlr_create(transport, attr, &tmp_ctrlr);
 	if (err) {
-		_NVMF_ERROR("FAILED: transport->ops->create_ctrlr(), err: %d", err);
+		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_create(), err: %d", err);
 		return err;
 	}
 
@@ -350,8 +372,6 @@ xnvme_be_nvmf_dev_ctrlr_term(void *ctrlr)
 			_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_destroy(), err: %d", err);
 			return err;
 		}
-
-		free(nvmf_ctrlr);
 	}
 
 	return 0;

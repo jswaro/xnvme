@@ -1,5 +1,4 @@
 // SPDX-FileCopyrightText: Samsung Electronics Co., Ltd
-// SPDX-FileCopyrightText: Samsung Electronics Co., Ltd
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
@@ -11,6 +10,7 @@
 #include <xnvme_be.h>
 
 #include <errno.h>
+#include <unistd.h>
 
 #include <xnvme_dev.h>
 #include <xnvme_be_cbi.h>
@@ -23,7 +23,11 @@
 #include <xnvme_be_nvmf_debug.h>
 #include <xnvme_be_nvmf_rdma.h>
 
-#define XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS 2000
+/*
+ * Bottom half (design.md section 3): rdma_cm event handling and the qpair
+ * connection state machine. Transport-native, with no NVMe-oF knowledge. It
+ * never calls up into the core.
+ */
 
 #define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
 #define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
@@ -333,9 +337,6 @@ _qpair_connecting_state_fn(struct xnvme_be_nvmf_qpair *qpair, struct rdma_cm_eve
 		_NVMF_DEBUG("INFO: RDMA_CM_EVENT_ESTABLISHED");
 		qpair->state = XNVME_NVMF_QPAIR_STATE_CONNECTED;
 		rdma_qpair->rdma_qp_state = XNVME_NVMF_RDMACM_STATE_CONNECTED;
-		if (qpair->on_state_change) {
-			qpair->on_state_change(qpair, XNVME_NVMF_QPAIR_STATE_CONNECTED, NULL);
-		}
 		break;
 	default:
 		_NVMF_ERROR("FAILED: Unexpected RDMA CM event: %d", event->event);
@@ -360,9 +361,6 @@ _qpair_connected_state_fn(struct xnvme_be_nvmf_qpair *qpair, struct rdma_cm_even
 		_NVMF_DEBUG("INFO: RDMA_CM_EVENT_DISCONNECTED");
 		qpair->state = XNVME_NVMF_QPAIR_STATE_DISCONNECTED;
 		rdma_qpair->rdma_qp_state = XNVME_NVMF_RDMACM_STATE_DISCONNECTED;
-		if (qpair->on_state_change) {
-			qpair->on_state_change(qpair, XNVME_NVMF_QPAIR_STATE_DISCONNECTED, NULL);
-		}
 		break;
 	default:
 		_NVMF_ERROR("FAILED: Unexpected RDMA CM event: %d", event->event);
@@ -405,7 +403,7 @@ static xnvme_be_nvmf_qpair_state_fn
 		[XNVME_NVMF_RDMACM_STATE_ERROR] = _qpair_error_state_fn,
 };
 
-int
+static int
 _handle_rdmacm_event(struct rdma_cm_event *event)
 {
 	struct xnvme_be_nvmf_qpair *qpair = (struct xnvme_be_nvmf_qpair *)event->id->context;
@@ -426,4 +424,45 @@ _handle_rdmacm_event(struct rdma_cm_event *event)
 	}
 
 	return 0;
+}
+
+/*
+ * Drives the qpair's own rdma_cm event channel (design.md section 2), used
+ * by the top half's qpair_connect / qpair_disconnect
+ * (xnvme_be_nvmf_rdma.c).
+ */
+int
+_process_qpair_cm_events(struct xnvme_be_nvmf_qpair *qpair, int timeout_ms)
+{
+	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);
+	struct rdma_event_channel *event_channel = rdma_qpair->event_channel;
+	struct rdma_cm_event *event;
+	struct xnvme_timer timer;
+	int err = 0;
+
+	xnvme_timer_start(&timer);
+	do {
+		err = rdma_get_cm_event(event_channel, &event);
+		if (err) {
+			if (xnvme_timer_elapsed_msecs(&timer) >= (double)timeout_ms) {
+				_NVMF_ERROR("FAILED: rdma_get_cm_event() timed out");
+				return -ETIMEDOUT;
+			}
+
+			// TODO: replace with non-blocking poll to avoid busy-wait
+			usleep(1000);
+		}
+	} while (err);
+
+	err = _handle_rdmacm_event(event);
+	if (err) {
+		_NVMF_ERROR("FAILED: _handle_rdmacm_event(), err: %d", err);
+	}
+
+	err = rdma_ack_cm_event(event);
+	if (err) {
+		_NVMF_ERROR("FAILED: rdma_ack_cm_event(), err: %d", err);
+	}
+
+	return err;
 }

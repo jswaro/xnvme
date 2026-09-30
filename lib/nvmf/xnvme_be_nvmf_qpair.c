@@ -84,7 +84,7 @@ xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *
 		return -EINVAL;
 	}
 
-	err = ctrlr->ops->create_qpair(ctrlr, attr, &tmp);
+	err = ctrlr->ops->qpair_alloc(ctrlr, &tmp);
 	if (err) {
 		return err;
 	}
@@ -94,10 +94,18 @@ xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *
 	tmp->dev = dev;
 	tmp->state = XNVME_NVMF_QPAIR_STATE_INIT;
 
+	err = tmp->ops->qpair_init(tmp);
+	if (err) {
+		_NVMF_ERROR("FAILED: qpair->ops->qpair_init(), err: %d", err);
+		tmp->ops->qpair_free(tmp);
+		return err;
+	}
+
 	err = xnvme_be_nvmf_req_pool_alloc(&tmp->req_pool, attr->qsize);
 	if (err) {
 		_NVMF_ERROR("FAILED: xnvme_be_nvmf_req_pool_alloc(), err: %d", err);
-		free(tmp);
+		tmp->ops->qpair_teardown(tmp);
+		tmp->ops->qpair_free(tmp);
 		return err;
 	}
 
@@ -110,7 +118,7 @@ xnvme_be_nvmf_qpair_connect(struct xnvme_be_nvmf_qpair *qpair)
 {
 	int err;
 
-	err = qpair->ops->connect(qpair);
+	err = qpair->ops->qpair_connect(qpair);
 	if (err) {
 		_NVMF_ERROR("FAILED: transport connect, err: %d", err);
 		return err;
@@ -134,7 +142,7 @@ xnvme_be_nvmf_qpair_connect(struct xnvme_be_nvmf_qpair *qpair)
 int
 xnvme_be_nvmf_qpair_disconnect(struct xnvme_be_nvmf_qpair *qpair)
 {
-	return qpair->ops->disconnect(qpair);
+	return qpair->ops->qpair_disconnect(qpair);
 }
 
 int
@@ -148,7 +156,15 @@ xnvme_be_nvmf_qpair_destroy(struct xnvme_be_nvmf_qpair *qpair)
 		return err;
 	}
 
-	return qpair->ops->destroy(qpair);
+	err = qpair->ops->qpair_teardown(qpair);
+	if (err) {
+		_NVMF_ERROR("FAILED: qpair->ops->qpair_teardown(), err: %d", err);
+		return err;
+	}
+
+	qpair->ops->qpair_free(qpair);
+
+	return 0;
 }
 
 int

@@ -20,7 +20,7 @@
 
 #include <xnvme_be_nvmf_transport.h>
 
-struct xnvme_be_nvmf_ctrlr_ops;
+struct xnvme_be_nvmf_transport_ops;
 struct xnvme_be_nvmf_qpair_attr;
 
 enum xnvme_nvmf_ctrlr_state {
@@ -40,7 +40,7 @@ struct xnvme_be_nvmf_ctrlr_attr {
 };
 
 struct xnvme_be_nvmf_ctrlr {
-	struct xnvme_be_nvmf_ctrlr_ops *ops;
+	const struct xnvme_be_nvmf_transport_ops *ops;
 	uint8_t ctrlr_id; ///< Controller ID for this device
 	// struct xnvme_dev *dev; ///< Pointer to the underlying xNVMe device
 	struct xnvme_be_nvmf_transport *transport; ///< Transport used by the NVMe-oF controller
@@ -52,21 +52,6 @@ struct xnvme_be_nvmf_ctrlr {
 	// candidates for 'flags'
 	uint8_t attached;
 	uint8_t discovery_ctrlr;
-};
-
-struct xnvme_be_nvmf_ctrlr_ops {
-	int (*connect)(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri);
-	int (*disconnect)(struct xnvme_be_nvmf_ctrlr *ctrlr);
-	int (*destroy)(struct xnvme_be_nvmf_ctrlr *ctrlr);
-
-	int (*create_qpair)(struct xnvme_be_nvmf_ctrlr *ctrlr,
-			    struct xnvme_be_nvmf_qpair_attr *attr,
-			    struct xnvme_be_nvmf_qpair **qpair);
-
-	/* control plane: memory registration, PD-backed */
-	int (*ctrlr_reg)(struct xnvme_be_nvmf_ctrlr *ctrlr, void *buf, size_t nbytes,
-			 void **handle, uint32_t *key);
-	int (*ctrlr_dereg)(struct xnvme_be_nvmf_ctrlr *ctrlr, void *handle);
 };
 
 /**
@@ -84,10 +69,11 @@ xnvme_be_nvmf_dev_ctrlr_term(void *ctrlr);
 /**
  * Core ctrlr lifecycle.
  *
- * `ctrlr_create` composes the transport `create_ctrlr` allocation with the
- * rest of the controller setup (admin qpair). `ctrlr_destroy` is its
- * counterpart. `ctrlr_connect` performs the transport-level connect followed
- * by the admin qpair connect; `ctrlr_disconnect` reverses it.
+ * `ctrlr_create` composes the transport `ctrlr_alloc` and `ctrlr_init` with
+ * the rest of the controller setup (admin qpair). `ctrlr_destroy` is its
+ * counterpart, composing `ctrlr_teardown` and `ctrlr_free`. `ctrlr_connect`
+ * performs the transport-level connect followed by the admin qpair connect;
+ * `ctrlr_disconnect` reverses it.
  */
 int
 xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,

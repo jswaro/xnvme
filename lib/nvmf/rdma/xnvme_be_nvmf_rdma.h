@@ -14,15 +14,7 @@
 #define TO_XNVME_NVMF_RDMA_CTRLR(ctrlr) \
 	container_of((ctrlr), struct xnvme_be_nvmf_rdma_ctrlr, base)
 
-void
-xnvme_be_nvmf_rdma_on_capsule_recv(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len);
-
-void
-xnvme_be_nvmf_rdma_on_send_cmpl(struct xnvme_be_nvmf_qpair *qpair, void *buf, int status);
-
-void
-xnvme_be_nvmf_rdma_on_state_change(struct xnvme_be_nvmf_qpair *qpair,
-				   enum xnvme_nvmf_qpair_state state, void *ctx);
+#define XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS 2000
 
 enum xnvme_nvmf_rdmacm_state {
 	XNVME_NVMF_RDMACM_STATE_INVALID = 0,
@@ -77,17 +69,31 @@ struct xnvme_be_nvmf_wr_id {
 	};
 };
 
-/* Function defined in xnvme_be_nvmf_rdma_cm.c, used by rdma_qpair.c */
+/*
+ * Bottom half (xnvme_be_nvmf_rdma_cm.c): drives the qpair's rdma_cm event
+ * channel. Used by the top half's qpair_connect / qpair_disconnect
+ * (xnvme_be_nvmf_rdma.c).
+ */
 int
-_handle_rdmacm_event(struct rdma_cm_event *event);
+_process_qpair_cm_events(struct xnvme_be_nvmf_qpair *qpair, int timeout_ms);
 
-/* Function defined in xnvme_be_nvmf_rdma_ctrlr.c, used by rdma.c */
+/*
+ * Bottom half (xnvme_be_nvmf_rdma_verbs.c): drains one CQ's worth of
+ * completions. Used by the top half's qpair_poll (xnvme_be_nvmf_rdma.c).
+ */
 int
-xnvme_be_nvmf_create_rdma_controller(struct xnvme_be_nvmf_ctrlr **ctrlr);
+_process_send_completions(struct xnvme_be_nvmf_qpair *qpair, int max_completions);
+int
+_process_recv_completions(struct xnvme_be_nvmf_qpair *qpair, int max_completions);
 
+/*
+ * Top half (xnvme_be_nvmf_rdma.c): the only up-call the bottom half is
+ * allowed to reach, folding the length check, the qpair-state check, and the
+ * call to xnvme_be_nvmf_qpair_complete() that used to live in the deleted
+ * on_capsule_recv callback. Called from the bottom half's
+ * xnvme_be_nvmf_rdma_verbs.c _handle_recv_cmpl().
+ */
 int
-xnvme_be_nvmf_create_rdma_qpair(struct xnvme_be_nvmf_ctrlr *ctrlr,
-				struct xnvme_be_nvmf_qpair_attr *attr,
-				struct xnvme_be_nvmf_qpair **qpair);
+xnvme_be_nvmf_rdma_top_recv_complete(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len);
 
 #endif /* _INTERNAL_XNVME_BE_NVMF_RDMA_H */
