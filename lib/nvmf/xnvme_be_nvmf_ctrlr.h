@@ -3,14 +3,14 @@
 
 /**
  * NVMe-oF controller creation and management functions
- * 
- * A NVMe-of Controller represents a remote NVMe uri/port combination as an endpoint for 
+ *
+ * A NVMe-of Controller represents a remote NVMe uri/port combination as an endpoint for
  * the NVMe-oF protocol. It manages the connection, state, and associated resources
- * for communicating with the remote NVMe device. This does not manage anything with subnqns. 
- * 
+ * for communicating with the remote NVMe device. This does not manage anything with subnqns.
+ *
  * This includes creating and connecting admin and I/O queue pairs, managing controller state,
  * and handling discovery controllers.
- * 
+ *
  * @note This is a low-level backend implementation and should be used through the
  *       higher-level xNVMe API.
  */
@@ -35,16 +35,16 @@ enum xnvme_nvmf_ctrlr_state {
 };
 
 struct xnvme_be_nvmf_ctrlr_attr {
-	uint8_t ctrlr_id; ///< Controller ID for this NVMe-oF controller
-	struct xnvme_dev *dev; ///< Pointer to the underlying xNVMe device	
+	uint8_t ctrlr_id;      ///< Controller ID for this NVMe-oF controller
+	struct xnvme_dev *dev; ///< Pointer to the underlying xNVMe device
 };
 
 struct xnvme_be_nvmf_ctrlr {
 	struct xnvme_be_nvmf_ctrlr_ops *ops;
-	uint8_t ctrlr_id;                     ///< Controller ID for this device
-	//struct xnvme_dev *dev; ///< Pointer to the underlying xNVMe device
+	uint8_t ctrlr_id; ///< Controller ID for this device
+	// struct xnvme_dev *dev; ///< Pointer to the underlying xNVMe device
 	struct xnvme_be_nvmf_transport *transport; ///< Transport used by the NVMe-oF controller
-	enum xnvme_nvmf_ctrlr_state ctrlr_state; ///< Connection state of the controller
+	enum xnvme_nvmf_ctrlr_state ctrlr_state;   ///< Connection state of the controller
 	struct xnvme_be_nvmf_qpair *admin_qpair;
 	struct xnvme_be_nvmf_qpair *sync_qpair;
 	int last_allocated_queue_id;
@@ -59,9 +59,9 @@ struct xnvme_be_nvmf_ctrlr_ops {
 	int (*disconnect)(struct xnvme_be_nvmf_ctrlr *ctrlr);
 	int (*destroy)(struct xnvme_be_nvmf_ctrlr *ctrlr);
 
-	int (*create_qpair)(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_be_nvmf_qpair_attr *attr,
+	int (*create_qpair)(struct xnvme_be_nvmf_ctrlr *ctrlr,
+			    struct xnvme_be_nvmf_qpair_attr *attr,
 			    struct xnvme_be_nvmf_qpair **qpair);
-	int (*process_events)(struct xnvme_be_nvmf_ctrlr *ctrlr, int timeout_ms);
 
 	/* control plane: memory registration, PD-backed */
 	int (*ctrlr_reg)(struct xnvme_be_nvmf_ctrlr *ctrlr, void *buf, size_t nbytes,
@@ -131,12 +131,5 @@ xnvme_be_nvmf_ctrlr_reg(struct xnvme_be_nvmf_ctrlr *ctrlr, void *buf, size_t nby
 
 int
 xnvme_be_nvmf_ctrlr_dereg(struct xnvme_be_nvmf_ctrlr *ctrlr, void *handle);
-
-
-static inline int
-xnvme_be_nvmf_ctrlr_process_events(struct xnvme_be_nvmf_ctrlr *ctrlr, int timeout_ms)
-{
-	return ctrlr->ops->process_events(ctrlr, timeout_ms);
-}
 
 #endif /* _INTERNAL_XNVME_BE_NVMF_CTRLR_H */

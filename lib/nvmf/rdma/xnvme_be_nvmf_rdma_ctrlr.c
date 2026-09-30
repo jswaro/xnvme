@@ -10,7 +10,6 @@
 #include <xnvme_be.h>
 
 #include <errno.h>
-#include <unistd.h>
 
 #include <xnvme_dev.h>
 
@@ -26,44 +25,8 @@
 
 static struct xnvme_be_nvmf_ctrlr_ops g_xnvme_be_nvmf_rdma_ctrlr_ops;
 
-#define _NVMF_RDMACM_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
-#define _NVMF_RDMACM_ERROR(fmt,...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
-
-static int
-_process_cm_events(struct xnvme_be_nvmf_ctrlr *ctrlr, int timeout_ms)
-{
-	struct xnvme_be_nvmf_rdma_ctrlr *rdma_ctrlr = TO_XNVME_NVMF_RDMA_CTRLR(ctrlr);
-	struct rdma_event_channel *event_channel = rdma_ctrlr->event_channel;
-	struct rdma_cm_event *event;
-	struct xnvme_timer timer;
-	int err = 0;
-
-	xnvme_timer_start(&timer);
-	do {
-		err = rdma_get_cm_event(event_channel, &event);
-		if (err) {
-			if (xnvme_timer_elapsed_msecs(&timer) >= (double)timeout_ms) {
-				_NVMF_RDMACM_ERROR("FAILED: rdma_get_cm_event() timed out");
-				return -ETIMEDOUT;
-			}
-
-			// TODO: replace with non-blocking poll to avoid busy-wait
-			usleep(1000);
-		}
-	} while (err);
-
-	err = _handle_rdmacm_event(event);
-	if (err) {
-		_NVMF_RDMACM_ERROR("FAILED: _handle_rdmacm_event(), err: %d", err);
-	}
-
-	err = rdma_ack_cm_event(event);
-	if (err) {
-		_NVMF_RDMACM_ERROR("FAILED: rdma_ack_cm_event(), err: %d", err);
-	}
-
-	return err;
-}
+#define _NVMF_RDMACM_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
+#define _NVMF_RDMACM_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
 
 static inline int
 _rdma_resolve_addrinfo(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
@@ -88,9 +51,9 @@ _rdma_resolve_addrinfo(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 		goto failed_getaddrinfo;
 	}
 	_NVMF_RDMACM_DEBUG("INFO: Successfully retrieved address for transport: IP: %s, Port: %s",
-		    ip_addr, port);
+			   ip_addr, port);
 	_NVMF_RDMACM_DEBUG("INFO: Address family: %s",
-		    rdma_ctrlr->res->ai_family == AF_INET ? "IPv4" : "IPv6");
+			   rdma_ctrlr->res->ai_family == AF_INET ? "IPv4" : "IPv6");
 
 	return 0;
 
@@ -103,7 +66,6 @@ int
 xnvme_be_nvmf_create_rdma_controller(struct xnvme_be_nvmf_ctrlr **ctrlr)
 {
 	struct xnvme_be_nvmf_rdma_ctrlr *rdma_ctrlr;
-	int err;
 
 	rdma_ctrlr = calloc(1, sizeof(*rdma_ctrlr));
 	if (!rdma_ctrlr) {
@@ -111,21 +73,10 @@ xnvme_be_nvmf_create_rdma_controller(struct xnvme_be_nvmf_ctrlr **ctrlr)
 		return -ENOMEM;
 	}
 
-	rdma_ctrlr->event_channel = rdma_create_event_channel();
-	if (!rdma_ctrlr->event_channel) {
-		_NVMF_RDMACM_ERROR("FAILED: rdma_create_event_channel(), err: %d", errno);
-		err = -errno;
-		goto free_ctrlr;
-	}
-
 	rdma_ctrlr->base.ops = &g_xnvme_be_nvmf_rdma_ctrlr_ops;
 	*ctrlr = &rdma_ctrlr->base;
 
 	return 0;
-
-free_ctrlr:
-	free(rdma_ctrlr);
-	return err;
 }
 
 static inline int
@@ -144,7 +95,7 @@ _connect_rdma_controller(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 	for (struct rdma_addrinfo *ai = rdma_ctrlr->res; ai != NULL; ai = ai->ai_next) {
 		if (ai->ai_family != AF_INET) {
 			_NVMF_RDMACM_DEBUG("INFO: Skipping unsupported address family: %d",
-				    ai->ai_family);
+					   ai->ai_family);
 			continue;
 		}
 
@@ -189,7 +140,8 @@ _disconnect_rdma_controller(struct xnvme_be_nvmf_ctrlr *ctrlr)
 	if (ctrlr->attached) {
 		err = xnvme_be_nvmf_qpair_disconnect(ctrlr->admin_qpair);
 		if (err) {
-			_NVMF_RDMACM_ERROR("FAILED: xnvme_be_nvmf_disconnect_qpair(), err: %d", err);
+			_NVMF_RDMACM_ERROR("FAILED: xnvme_be_nvmf_disconnect_qpair(), err: %d",
+					   err);
 			return err;
 		}
 
@@ -199,8 +151,8 @@ _disconnect_rdma_controller(struct xnvme_be_nvmf_ctrlr *ctrlr)
 	}
 
 	// TODO: This requires proper handling.
-	//xnvme_be_nvmf_destroy_qpair(rdma_ctrlr->base.sync_qpair);
-	//free(rdma_ctrlr->base.sync_qpair);
+	// xnvme_be_nvmf_destroy_qpair(rdma_ctrlr->base.sync_qpair);
+	// free(rdma_ctrlr->base.sync_qpair);
 
 	return 0;
 }
@@ -210,9 +162,9 @@ _destroy_rdma_controller(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
 	struct xnvme_be_nvmf_rdma_ctrlr *rdma_ctrlr = TO_XNVME_NVMF_RDMA_CTRLR(ctrlr);
 
-	if (rdma_ctrlr->event_channel) {
-		rdma_destroy_event_channel(rdma_ctrlr->event_channel);
-		rdma_ctrlr->event_channel = NULL;
+	if (rdma_ctrlr->pd) {
+		ibv_dealloc_pd(rdma_ctrlr->pd);
+		rdma_ctrlr->pd = NULL;
 	}
 
 	if (rdma_ctrlr->res) {
@@ -281,7 +233,6 @@ static struct xnvme_be_nvmf_ctrlr_ops g_xnvme_be_nvmf_rdma_ctrlr_ops = {
 	.destroy = _destroy_rdma_controller,
 
 	.create_qpair = xnvme_be_nvmf_create_rdma_qpair,
-	.process_events = _process_cm_events,
 
 	.ctrlr_reg = _reg_rdma_ctrlr,
 	.ctrlr_dereg = _dereg_rdma_ctrlr,

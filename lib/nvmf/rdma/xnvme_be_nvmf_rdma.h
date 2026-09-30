@@ -46,6 +46,8 @@ enum xnvme_be_nvmf_wr_type {
 struct xnvme_be_nvmf_rdma_qpair {
 	struct xnvme_be_nvmf_qpair base;
 	enum xnvme_nvmf_rdmacm_state rdma_qp_state;
+	struct rdma_event_channel *event_channel; ///< Per-qpair rdma_cm event channel (design.md
+						  ///< section 2)
 	struct rdma_cm_id *cm_id;
 	struct ibv_mr *send_mr;
 	struct ibv_mr *recv_mr;
@@ -60,8 +62,8 @@ struct xnvme_be_nvmf_rdma_ctrlr {
 	struct xnvme_be_nvmf_ctrlr base;
 	struct rdma_addrinfo *res;      ///< Resolved address information array for the controller
 	struct rdma_addrinfo *selected; ///< Selected address information for the controller
-	struct rdma_event_channel *event_channel;
-	struct ibv_pd *pd;
+	struct ibv_pd *pd; ///< Allocated once, on the admin qpair's transport connect, and reused
+			   ///< by every later qpair (design.md section 4)
 };
 
 struct xnvme_be_nvmf_wr_id {
@@ -75,7 +77,7 @@ struct xnvme_be_nvmf_wr_id {
 	};
 };
 
-/* Functions defined in xnvme_be_nvmf_rdma_qpair.c, used by rdma_ctrlr.c */
+/* Function defined in xnvme_be_nvmf_rdma_cm.c, used by rdma_qpair.c */
 int
 _handle_rdmacm_event(struct rdma_cm_event *event);
 
@@ -84,7 +86,8 @@ int
 xnvme_be_nvmf_create_rdma_controller(struct xnvme_be_nvmf_ctrlr **ctrlr);
 
 int
-xnvme_be_nvmf_create_rdma_qpair(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_be_nvmf_qpair_attr *attr,
+xnvme_be_nvmf_create_rdma_qpair(struct xnvme_be_nvmf_ctrlr *ctrlr,
+				struct xnvme_be_nvmf_qpair_attr *attr,
 				struct xnvme_be_nvmf_qpair **qpair);
 
 #endif /* _INTERNAL_XNVME_BE_NVMF_RDMA_H */

@@ -25,8 +25,8 @@
 
 #define XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS 2000
 
-#define _NVMF_ERROR(fmt,...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
-#define _NVMF_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
+#define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
+#define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_RDMACM, fmt, ##__VA_ARGS__)
 
 struct xnvme_rdma_cm_request_pdf {
 	uint16_t recfmt;
@@ -82,13 +82,23 @@ _resolve_rdma_route(struct xnvme_be_nvmf_qpair *qpair)
 	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);
 	struct xnvme_be_nvmf_rdma_ctrlr *rdma_ctrlr =
 		TO_XNVME_NVMF_RDMA_CTRLR(rdma_qpair->base.ctrlr);
-
+	bool allocated_pd = false;
 	int err;
 
-	rdma_ctrlr->pd = ibv_alloc_pd(rdma_qpair->cm_id->verbs);
+	/*
+	 * The PD is allocated lazily, once, on the admin qpair's transport
+	 * connect (design.md section 4 and 8.2 step 4). Later qpairs reuse
+	 * it. On an error in this function, only a PD allocated by this call
+	 * is freed here; a PD inherited from an earlier qpair may already be
+	 * in use elsewhere and is left for ctrlr_teardown to free.
+	 */
 	if (!rdma_ctrlr->pd) {
-		_NVMF_ERROR("FAILED: ibv_alloc_pd(), err: %d", errno);
-		return -errno;
+		rdma_ctrlr->pd = ibv_alloc_pd(rdma_qpair->cm_id->verbs);
+		if (!rdma_ctrlr->pd) {
+			_NVMF_ERROR("FAILED: ibv_alloc_pd(), err: %d", errno);
+			return -errno;
+		}
+		allocated_pd = true;
 	}
 
 	rdma_qpair->send_cq =
@@ -123,7 +133,10 @@ destroy_recv_cq:
 destroy_send_cq:
 	ibv_destroy_cq(rdma_qpair->send_cq);
 destroy_pd:
-	ibv_dealloc_pd(rdma_ctrlr->pd);
+	if (allocated_pd) {
+		ibv_dealloc_pd(rdma_ctrlr->pd);
+		rdma_ctrlr->pd = NULL;
+	}
 
 	return err;
 }
@@ -213,17 +226,19 @@ _connect_rdma_qpair(struct xnvme_be_nvmf_qpair *qpair)
 		goto free_send_buffer;
 	}
 
-	rdma_qpair->send_mr = ibv_reg_mr(
-		rdma_ctrlr->pd, rdma_qpair->send_buffer, qpair->attr.qsize * qpair->attr.capsule_size,
-		IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
+	rdma_qpair->send_mr = ibv_reg_mr(rdma_ctrlr->pd, rdma_qpair->send_buffer,
+					 qpair->attr.qsize * qpair->attr.capsule_size,
+					 IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
+						 IBV_ACCESS_REMOTE_WRITE);
 	if (!rdma_qpair->send_mr) {
 		_NVMF_ERROR("FAILED: ibv_reg_mr() for send_buffer, err: %d", errno);
 		goto free_recv_buffer;
 	}
 
-	rdma_qpair->recv_mr = ibv_reg_mr(
-		rdma_ctrlr->pd, rdma_qpair->recv_buffer, qpair->attr.qsize * qpair->attr.completion_size,
-		IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
+	rdma_qpair->recv_mr = ibv_reg_mr(rdma_ctrlr->pd, rdma_qpair->recv_buffer,
+					 qpair->attr.qsize * qpair->attr.completion_size,
+					 IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
+						 IBV_ACCESS_REMOTE_WRITE);
 	if (!rdma_qpair->recv_mr) {
 		_NVMF_ERROR("FAILED: ibv_reg_mr() for recv_buffer, err: %d", errno);
 		goto dereg_send_mr;
@@ -231,12 +246,13 @@ _connect_rdma_qpair(struct xnvme_be_nvmf_qpair *qpair)
 
 	for (int i = 0; i < qpair->attr.qsize; ++i) {
 		struct ibv_sge sge = {
-			.addr = (uintptr_t)rdma_qpair->recv_buffer + i * qpair->attr.completion_size,
+			.addr = (uintptr_t)rdma_qpair->recv_buffer +
+				i * qpair->attr.completion_size,
 			.length = qpair->attr.completion_size,
 			.lkey = rdma_qpair->recv_mr->lkey,
 		};
 		struct xnvme_be_nvmf_wr_id wr_id = {0};
-		
+
 		wr_id.index = i;
 		wr_id.type = XNVME_BE_NVMF_WR_TYPE_RECV;
 
@@ -253,7 +269,8 @@ _connect_rdma_qpair(struct xnvme_be_nvmf_qpair *qpair)
 		}
 	}
 
-	err = _connect(rdma_qpair->cm_id, rdma_qpair->base.attr.qid, rdma_qpair->base.attr.qsize, rdma_qpair->base.ctrlr->ctrlr_id);
+	err = _connect(rdma_qpair->cm_id, rdma_qpair->base.attr.qid, rdma_qpair->base.attr.qsize,
+		       rdma_qpair->base.ctrlr->ctrlr_id);
 	if (err) {
 		_NVMF_ERROR("FAILED: _connect(), err: %d", err);
 		goto destroy_qp;

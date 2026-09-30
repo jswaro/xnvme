@@ -11,6 +11,7 @@
 #include <xnvme_be.h>
 
 #include <errno.h>
+#include <unistd.h>
 
 #include <xnvme_dev.h>
 #include <xnvme_be_cbi.h>
@@ -101,6 +102,11 @@ _destroy_rdma_qpair(struct xnvme_be_nvmf_rdma_qpair *qpair)
 			return err;
 		}
 		qpair->recv_cq = NULL;
+	}
+
+	if (qpair->event_channel) {
+		rdma_destroy_event_channel(qpair->event_channel);
+		qpair->event_channel = NULL;
 	}
 
 	return 0;
@@ -341,6 +347,42 @@ _progress_all_completion_queues(struct xnvme_be_nvmf_qpair *qpair)
 }
 
 static int
+_process_qpair_cm_events(struct xnvme_be_nvmf_qpair *qpair, int timeout_ms)
+{
+	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);
+	struct rdma_event_channel *event_channel = rdma_qpair->event_channel;
+	struct rdma_cm_event *event;
+	struct xnvme_timer timer;
+	int err = 0;
+
+	xnvme_timer_start(&timer);
+	do {
+		err = rdma_get_cm_event(event_channel, &event);
+		if (err) {
+			if (xnvme_timer_elapsed_msecs(&timer) >= (double)timeout_ms) {
+				_NVMF_CTRL_ERROR("FAILED: rdma_get_cm_event() timed out");
+				return -ETIMEDOUT;
+			}
+
+			// TODO: replace with non-blocking poll to avoid busy-wait
+			usleep(1000);
+		}
+	} while (err);
+
+	err = _handle_rdmacm_event(event);
+	if (err) {
+		_NVMF_CTRL_ERROR("FAILED: _handle_rdmacm_event(), err: %d", err);
+	}
+
+	err = rdma_ack_cm_event(event);
+	if (err) {
+		_NVMF_CTRL_ERROR("FAILED: rdma_ack_cm_event(), err: %d", err);
+	}
+
+	return err;
+}
+
+static int
 _disconnect_rdma_qpair_sync(struct xnvme_be_nvmf_qpair *qpair)
 {
 	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);
@@ -361,10 +403,9 @@ _disconnect_rdma_qpair_sync(struct xnvme_be_nvmf_qpair *qpair)
 		"INFO: rdma_disconnect() successful, waiting for RDMA_CM_EVENT_DISCONNECTED");
 
 	while (qpair->state != XNVME_NVMF_QPAIR_STATE_DISCONNECTED) {
-		err = qpair->ctrlr->ops->process_events(qpair->ctrlr,
-							XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS);
+		err = _process_qpair_cm_events(qpair, XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: process_events(), err: %d", err);
+			_NVMF_CTRL_ERROR("FAILED: _process_qpair_cm_events(), err: %d", err);
 			return err;
 		}
 	}
@@ -383,7 +424,7 @@ _connect_rdma_qpair_sync(struct xnvme_be_nvmf_qpair *qpair)
 
 	assert(qpair->state == XNVME_NVMF_QPAIR_STATE_INIT);
 
-	err = rdma_create_id(rdma_ctrlr->event_channel, &rdma_qpair->cm_id, qpair,
+	err = rdma_create_id(rdma_qpair->event_channel, &rdma_qpair->cm_id, qpair,
 			     ai->ai_port_space);
 	if (err) {
 		_NVMF_CTRL_ERROR("FAILED: rdma_create_id(), err: %d", err);
@@ -402,10 +443,9 @@ _connect_rdma_qpair_sync(struct xnvme_be_nvmf_qpair *qpair)
 	rdma_qpair->rdma_qp_state = XNVME_NVMF_RDMACM_STATE_RESOLVE_ADDRESS;
 
 	while (qpair->state != XNVME_NVMF_QPAIR_STATE_CONNECTED) {
-		err = xnvme_be_nvmf_ctrlr_process_events(qpair->ctrlr,
-							 XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS);
+		err = _process_qpair_cm_events(qpair, XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS);
 		if (err) {
-			_NVMF_CTRL_ERROR("FAILED: process_events(), err: %d", err);
+			_NVMF_CTRL_ERROR("FAILED: _process_qpair_cm_events(), err: %d", err);
 			return err;
 		}
 
@@ -427,11 +467,19 @@ xnvme_be_nvmf_create_rdma_qpair(struct xnvme_be_nvmf_ctrlr *ctrlr,
 				struct xnvme_be_nvmf_qpair **qpair)
 {
 	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair;
+	int err;
 
 	rdma_qpair = calloc(1, sizeof(*rdma_qpair));
 	if (!rdma_qpair) {
 		_NVMF_CTRL_ERROR("FAILED: calloc(), err: %d", errno);
 		return -ENOMEM;
+	}
+
+	rdma_qpair->event_channel = rdma_create_event_channel();
+	if (!rdma_qpair->event_channel) {
+		_NVMF_CTRL_ERROR("FAILED: rdma_create_event_channel(), err: %d", errno);
+		err = -errno;
+		goto free_qpair;
 	}
 
 	rdma_qpair->qp_init_attr.cap.max_send_wr = attr->qsize;
@@ -450,6 +498,10 @@ xnvme_be_nvmf_create_rdma_qpair(struct xnvme_be_nvmf_ctrlr *ctrlr,
 	*qpair = &rdma_qpair->base;
 
 	return 0;
+
+free_qpair:
+	free(rdma_qpair);
+	return err;
 }
 
 static inline int
