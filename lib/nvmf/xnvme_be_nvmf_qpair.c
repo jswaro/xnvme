@@ -6,6 +6,11 @@
 
 #include <xnvme_cmd.h>
 #include <xnvme_be_nvmf.h>
+#include <xnvme_be_nvmf_ctrlr.h>
+#include <xnvme_be_nvmf_qpair.h>
+#include <xnvme_be_nvmf_req.h>
+#include <xnvme_be_nvmf_fabric.h>
+#include <xnvme_be_nvmf_debug.h>
 
 #define XNVME_MIN_CAPSULE_SIZE sizeof(struct xnvme_spec_cmd)
 #define XNVME_MIN_COMPLETION_SIZE sizeof(struct xnvme_spec_cpl)

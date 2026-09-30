@@ -3,6 +3,10 @@
 
 #include <xnvme_dev.h>
 #include <xnvme_be_nvmf.h>
+#include <xnvme_be_nvmf_ctrlr.h>
+#include <xnvme_be_nvmf_qpair.h>
+#include <xnvme_be_nvmf_transport.h>
+#include <xnvme_be_nvmf_debug.h>
 
 #define _NVMF_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
 #define _NVMF_INFO(fmt,...) NVMF_INFO(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)

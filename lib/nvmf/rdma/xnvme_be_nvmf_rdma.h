@@ -4,6 +4,9 @@
 #include <rdma/rdma_cma.h>
 
 #include <xnvme_be_nvmf.h>
+#include <xnvme_be_nvmf_ctrlr.h>
+#include <xnvme_be_nvmf_qpair.h>
+#include <xnvme_be_nvmf_transport.h>
 
 #define TO_XNVME_NVMF_RDMA_QPAIR(qpair) \
 	container_of((qpair), struct xnvme_be_nvmf_rdma_qpair, base)

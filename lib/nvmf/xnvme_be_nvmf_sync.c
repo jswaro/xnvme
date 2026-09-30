@@ -13,6 +13,9 @@
 #include <unistd.h>
 #include <xnvme_dev.h>
 #include <xnvme_be_nvmf.h>
+#include <xnvme_be_nvmf_ctrlr.h>
+#include <xnvme_be_nvmf_qpair.h>
+#include <xnvme_be_nvmf_req.h>
 
 int
 xnvme_be_nvmf_sync_cmd_io(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbuf_nbytes, void *mbuf,

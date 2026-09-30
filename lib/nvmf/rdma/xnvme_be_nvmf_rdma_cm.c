@@ -18,6 +18,9 @@
 #include <rdma/rdma_cma.h>
 
 #include <xnvme_be_nvmf.h>
+#include <xnvme_be_nvmf_ctrlr.h>
+#include <xnvme_be_nvmf_qpair.h>
+#include <xnvme_be_nvmf_debug.h>
 #include <xnvme_be_nvmf_rdma.h>
 
 #define XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS 2000

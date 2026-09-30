@@ -11,6 +11,8 @@
 #include <xnvme_dev.h>
 #include <xnvme_queue.h>
 #include <xnvme_be_nvmf.h>
+#include <xnvme_be_nvmf_qpair.h>
+#include <xnvme_be_nvmf_req.h>
 
 /**
  * Command Queue for asynchronous command submission and completion

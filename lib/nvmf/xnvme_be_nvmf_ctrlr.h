@@ -18,16 +18,7 @@
 #include <stdint.h>
 #include <pthread.h>
 
-struct xnvme_be_nvmf_ctrlr;
-
-struct xnvme_be_nvmf_transport_ops {
-	int (*create_ctrlr)(struct xnvme_be_nvmf_ctrlr **ctrlr);
-};
-
-struct xnvme_be_nvmf_transport {
-	const char *name;
-	struct xnvme_be_nvmf_transport_ops ops;
-};
+#include <xnvme_be_nvmf_transport.h>
 
 struct xnvme_be_nvmf_ctrlr_ops;
 struct xnvme_be_nvmf_qpair_attr;

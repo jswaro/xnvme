@@ -1,5 +1,5 @@
-#ifndef _INTERNAL_XNVME_BE_NVMF_REQ_POOL_H
-#define _INTERNAL_XNVME_BE_NVMF_REQ_POOL_H
+#ifndef _INTERNAL_XNVME_BE_NVMF_REQ_H
+#define _INTERNAL_XNVME_BE_NVMF_REQ_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -132,4 +132,4 @@ xnvme_be_nvmf_req_free(struct xnvme_be_nvmf_req_pool *pool, struct xnvme_be_nvmf
     SLIST_INSERT_HEAD(&pool->free_list, req, next);
     pool->allocated--;
 }
-#endif /* _INTERNAL_XNVME_BE_NVMF_REQ_POOL_H */
+#endif /* _INTERNAL_XNVME_BE_NVMF_REQ_H */

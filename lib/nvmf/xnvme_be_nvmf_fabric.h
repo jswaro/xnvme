@@ -1,6 +1,9 @@
 #ifndef _INTERNAL_XNVME_BE_NVMF_FABRIC_H
 #define _INTERNAL_XNVME_BE_NVMF_FABRIC_H
 
+#include <xnvme_be_nvmf_ctrlr.h>
+#include <xnvme_be_nvmf_qpair.h>
+
 int
 xnvme_be_nvmf_initialize_remote_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_be_nvmf_qpair *admin_qpair);
 

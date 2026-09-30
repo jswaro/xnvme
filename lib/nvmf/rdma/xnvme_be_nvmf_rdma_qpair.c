@@ -18,8 +18,11 @@
 #include <rdma/rdma_cma.h>
 
 #include <xnvme_be_nvmf.h>
+#include <xnvme_be_nvmf_ctrlr.h>
+#include <xnvme_be_nvmf_qpair.h>
+#include <xnvme_be_nvmf_req.h>
+#include <xnvme_be_nvmf_debug.h>
 #include <xnvme_be_nvmf_rdma.h>
-#include <xnvme_be_nvmf_req_pool.h>
 
 #define _NVMF_CTRL_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
 #define _NVMF_CTRL_ERROR(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)

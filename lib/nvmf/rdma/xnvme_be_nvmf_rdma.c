@@ -9,6 +9,10 @@
 #include <xnvme_be.h>
 
 #include <xnvme_be_nvmf.h>
+#include <xnvme_be_nvmf_qpair.h>
+#include <xnvme_be_nvmf_req.h>
+#include <xnvme_be_nvmf_transport.h>
+#include <xnvme_be_nvmf_debug.h>
 #include <xnvme_be_nvmf_rdma.h>
 
 #define _NVMF_DATA_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
