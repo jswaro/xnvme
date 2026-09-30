@@ -7,6 +7,7 @@
 
 struct xnvme_be_nvmf_qpair;
 struct xnvme_be_nvmf_qpair_ops;
+struct xnvme_spec_cpl;
 
 enum xnvme_nvmf_qpair_state {
 	XNVME_NVMF_QPAIR_STATE_INVALID = 0,
@@ -44,7 +45,7 @@ struct xnvme_be_nvmf_qpair_attr {
 	uint16_t qid;
 	uint16_t qsize;
 	uint32_t capsule_size;
-	uint32_t completion_size; 
+	uint32_t completion_size;
 };
 
 struct xnvme_be_nvmf_qpair {
@@ -67,15 +68,15 @@ struct xnvme_be_nvmf_qpair {
  *
  * connect / disconnect / destroy
  *   Manage the lifetime of the underlying transport connection. On connect the
- *   transport must pre-post receive buffers before returning. These are owned 
- *   by the transport; the protocol layer never calls post_recv for them. When 
- *   a reserve buffer is consumed the transport re-posts it before invoking 
- *   on_capsule_recv so the pool never drains. 
+ *   transport must pre-post receive buffers before returning. These are owned
+ *   by the transport; the protocol layer never calls post_recv for them. When
+ *   a reserve buffer is consumed the transport re-posts it before invoking
+ *   on_capsule_recv so the pool never drains.
  *
- * send_capsule
- *   Place one capsule (buf, len) onto the send queue. The caller owns the
- *   buffer until on_send_cmpl fires. The transport does not interpret the
- *   bytes.
+ * qpair_submit
+ *   Post one capsule (capsule, nbytes) onto the send queue, with @cid going
+ *   into the transport work request identifier. The caller owns the buffer
+ *   until on_send_cmpl fires. The transport does not interpret the bytes.
  *
  * post_recv
  *   Hand a receive buffer to the transport for the normal command-response
@@ -83,7 +84,7 @@ struct xnvme_be_nvmf_qpair {
  *   arrives. The caller owns the buffer after the callback returns. Must not
  *   be used to manage the async reserve; that is transport-internal.
  *
- * process_completions
+ * qpair_poll
  *   Drive the transport's completion machinery. Fires the registered callbacks
  *   for every completed send and every received capsule. Returns the number
  *   of completions processed, or a negative errno on error.
@@ -93,23 +94,27 @@ struct xnvme_be_nvmf_qpair_ops {
 	int (*connect)(struct xnvme_be_nvmf_qpair *qpair);
 	int (*disconnect)(struct xnvme_be_nvmf_qpair *qpair);
 	int (*destroy)(struct xnvme_be_nvmf_qpair *qpair);
-	int (*reg_mr)(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len, void **handle, uint64_t *lkey, uint64_t *rkey);
+	int (*reg_mr)(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len, void **handle,
+		      uint64_t *lkey, uint64_t *rkey);
 	int (*dereg_mr)(struct xnvme_be_nvmf_qpair *qpair, void *handle);
 
 	/* data path */
-	int (*cmd_io)(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbuf_nbytes, void *mbuf,
-	       size_t mbuf_nbyte);
-	int (*cmd_iov)(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, struct iovec *dvec, size_t dvec_cnt, size_t dvec_nbytes,
-		struct iovec *mvec, size_t mvec_cnt, size_t mvec_nbyte);
+	int (*cmd_io)(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, void *dbuf,
+		      size_t dbuf_nbytes, void *mbuf, size_t mbuf_nbyte);
+	int (*cmd_iov)(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx,
+		       struct iovec *dvec, size_t dvec_cnt, size_t dvec_nbytes, struct iovec *mvec,
+		       size_t mvec_cnt, size_t mvec_nbyte);
 
-	int (*process_completions)(struct xnvme_be_nvmf_qpair *qpair, int max_completions);
+	int (*qpair_poll)(struct xnvme_be_nvmf_qpair *qpair, uint32_t max);
 
-	int (*send_capsule)(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_be_nvmf_req* req, void *buf, size_t len);
+	int (*qpair_submit)(struct xnvme_be_nvmf_qpair *qpair, const void *capsule, size_t nbytes,
+			    uint16_t cid);
 };
 
 int
 xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *dev,
-	struct xnvme_be_nvmf_qpair_attr *attr, struct xnvme_be_nvmf_qpair **qpair);
+			   struct xnvme_be_nvmf_qpair_attr *attr,
+			   struct xnvme_be_nvmf_qpair **qpair);
 
 int
 xnvme_be_nvmf_qpair_connect(struct xnvme_be_nvmf_qpair *qpair);
@@ -118,30 +123,50 @@ xnvme_be_nvmf_qpair_disconnect(struct xnvme_be_nvmf_qpair *qpair);
 int
 xnvme_be_nvmf_qpair_destroy(struct xnvme_be_nvmf_qpair *qpair);
 
+/**
+ * The only up-call from the transport into the core (design.md section 7).
+ * Looks up the request by `cpl->cid` in `qpair->req_pool`, copies the
+ * completion into the request's `xnvme_cmd_ctx.cpl`, and marks the request
+ * done. Returns 0, or a negative errno for an unknown or inactive CID.
+ */
+int
+xnvme_be_nvmf_qpair_complete(struct xnvme_be_nvmf_qpair *qpair, const struct xnvme_spec_cpl *cpl);
+
 static inline int
-xnvme_be_nvmf_cmd_iov(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, struct iovec *dvec, size_t dvec_cnt, size_t dvec_nbytes,
-		struct iovec *mvec, size_t mvec_cnt, size_t mvec_nbyte)
+xnvme_be_nvmf_cmd_iov(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx,
+		      struct iovec *dvec, size_t dvec_cnt, size_t dvec_nbytes, struct iovec *mvec,
+		      size_t mvec_cnt, size_t mvec_nbyte)
 {
-	return qpair->ops->cmd_iov(qpair, ctx, dvec, dvec_cnt, dvec_nbytes, mvec, mvec_cnt, mvec_nbyte);
+	return qpair->ops->cmd_iov(qpair, ctx, dvec, dvec_cnt, dvec_nbytes, mvec, mvec_cnt,
+				   mvec_nbyte);
 }
 
 static inline int
-xnvme_be_nvmf_cmd_io(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbuf_nbytes,
-			    void *mbuf, size_t mbuf_nbytes)
+xnvme_be_nvmf_cmd_io(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, void *dbuf,
+		     size_t dbuf_nbytes, void *mbuf, size_t mbuf_nbytes)
 {
 	return qpair->ops->cmd_io(qpair, ctx, dbuf, dbuf_nbytes, mbuf, mbuf_nbytes);
 }
 
+/**
+ * Posts one command capsule (@capsule, @nbytes) with @cid, the hot-path
+ * data-plane entry. @cid goes into the transport work request identifier.
+ */
 static inline int
-xnvme_be_nvmf_qpair_send_capsule(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_be_nvmf_req* req, void *buf, size_t len)
+xnvme_be_nvmf_qpair_submit(struct xnvme_be_nvmf_qpair *qpair, const void *capsule, size_t nbytes,
+			   uint16_t cid)
 {
-	return qpair->ops->send_capsule(qpair, req, buf, len);
+	return qpair->ops->qpair_submit(qpair, capsule, nbytes, cid);
 }
 
+/**
+ * Processes up to @max completions, the hot-path data-plane entry. Returns
+ * the number of completions processed, or a negative errno.
+ */
 static inline int
-xnvme_be_nvmf_qpair_process_completions(struct xnvme_be_nvmf_qpair *qpair, int max_completions)
+xnvme_be_nvmf_qpair_poll(struct xnvme_be_nvmf_qpair *qpair, uint32_t max)
 {
-	return qpair->ops->process_completions(qpair, max_completions);
+	return qpair->ops->qpair_poll(qpair, max);
 }
 
 static inline void
@@ -149,12 +174,12 @@ xnvme_be_nvmf_wait_for_completion(struct xnvme_be_nvmf_qpair *qpair, struct xnvm
 {
 	while (req->cmpl_type != XNVME_BE_NVMF_REQ_CMPL_TYPE_RECV) {
 		if (req->status)
-			break; 
+			break;
 
 		if (qpair->state == XNVME_NVMF_QPAIR_STATE_ERROR)
 			break;
-			
-		xnvme_be_nvmf_qpair_process_completions(qpair, 1);
+
+		xnvme_be_nvmf_qpair_poll(qpair, 1);
 	}
 }
 #endif /* _INTERNAL_XNVME_BE_NVMF_QPAIR_H */

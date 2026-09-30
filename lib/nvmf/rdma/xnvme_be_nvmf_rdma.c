@@ -3,51 +3,30 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <errno.h>
-#include <string.h>
 
 #include <libxnvme.h>
 #include <xnvme_be.h>
 
 #include <xnvme_be_nvmf.h>
 #include <xnvme_be_nvmf_qpair.h>
-#include <xnvme_be_nvmf_req.h>
 #include <xnvme_be_nvmf_transport.h>
 #include <xnvme_be_nvmf_debug.h>
 #include <xnvme_be_nvmf_rdma.h>
 
-#define _NVMF_DATA_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
-#define _NVMF_DATA_ERROR(fmt,...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
+#define _NVMF_DATA_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
+#define _NVMF_DATA_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
 
 void
 xnvme_be_nvmf_rdma_on_capsule_recv(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len)
 {
 	struct xnvme_spec_cpl *cpl = buf;
-	struct xnvme_spec_fabric_connect_resp_cpl *connect_cpl =
-		(struct xnvme_spec_fabric_connect_resp_cpl *)cpl;
-	struct xnvme_be_nvmf_req *req = NULL;
-	struct xnvme_cmd_ctx *cmd_ctx = NULL;
+	int err;
 
 	if (len < sizeof(*cpl)) {
 		_NVMF_DATA_ERROR("FAILED: short capsule, len: %zu", len);
 		qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;
 		return;
 	}
-
-	req = xnvme_be_nvmf_req_get(qpair->req_pool, cpl->cid);
-	if (!req) {
-		_NVMF_DATA_ERROR("FAILED: Could not get request for wr_id index: %u", cpl->cid);
-		qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;
-		return;
-	}
-
-	req->cmpl_type = XNVME_BE_NVMF_REQ_CMPL_TYPE_RECV;
-	req->status = 0;
-	cmd_ctx = (struct xnvme_cmd_ctx *)req->context;
-
-	// copy the completion into the command context
-	memcpy(&cmd_ctx->cpl, cpl, sizeof(*cpl));
-
-	_print_nvme_completion(cpl);
 
 	switch (qpair->state) {
 	case XNVME_NVMF_QPAIR_STATE_CONNECTED:
@@ -58,6 +37,15 @@ xnvme_be_nvmf_rdma_on_capsule_recv(struct xnvme_be_nvmf_qpair *qpair, void *buf,
 		_NVMF_DATA_ERROR("FAILED: capsule in unexpected state: %d", qpair->state);
 		break;
 	}
+
+	err = xnvme_be_nvmf_qpair_complete(qpair, cpl);
+	if (err) {
+		_NVMF_DATA_ERROR("FAILED: xnvme_be_nvmf_qpair_complete(), err: %d", err);
+		qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;
+		return;
+	}
+
+	_print_nvme_completion(cpl);
 }
 
 void

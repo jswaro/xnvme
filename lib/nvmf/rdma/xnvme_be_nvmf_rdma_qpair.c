@@ -24,11 +24,11 @@
 #include <xnvme_be_nvmf_debug.h>
 #include <xnvme_be_nvmf_rdma.h>
 
-#define _NVMF_CTRL_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
-#define _NVMF_CTRL_ERROR(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
+#define _NVMF_CTRL_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
+#define _NVMF_CTRL_ERROR(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_CTRL, fmt, ##__VA_ARGS__)
 
-#define _NVMF_DATA_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
-#define _NVMF_DATA_ERROR(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
+#define _NVMF_DATA_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
+#define _NVMF_DATA_ERROR(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_VERBS_DATA, fmt, ##__VA_ARGS__)
 
 #define XNVME_BE_NVMF_MAX_RDMACM_TIMEOUT_MS 2000
 #define NVME_CMD_CAPSULE_SIZE sizeof(struct xnvme_spec_cmd_common)
@@ -110,15 +110,24 @@ static inline const char *
 _ibv_wc_opcode_str(enum ibv_wc_opcode opcode)
 {
 	switch (opcode) {
-	case IBV_WC_SEND: return "SEND";
-	case IBV_WC_RDMA_WRITE: return "RDMA_WRITE";
-	case IBV_WC_RDMA_READ: return "RDMA_READ";
-	case IBV_WC_COMP_SWAP: return "COMP_SWAP";
-	case IBV_WC_FETCH_ADD: return "FETCH_ADD";
-	case IBV_WC_BIND_MW: return "BIND_MW";
-	case IBV_WC_RECV: return "RECV";
-	case IBV_WC_RECV_RDMA_WITH_IMM: return "RECV_RDMA_WITH_IMM";
-	default: return "UNKNOWN";
+	case IBV_WC_SEND:
+		return "SEND";
+	case IBV_WC_RDMA_WRITE:
+		return "RDMA_WRITE";
+	case IBV_WC_RDMA_READ:
+		return "RDMA_READ";
+	case IBV_WC_COMP_SWAP:
+		return "COMP_SWAP";
+	case IBV_WC_FETCH_ADD:
+		return "FETCH_ADD";
+	case IBV_WC_BIND_MW:
+		return "BIND_MW";
+	case IBV_WC_RECV:
+		return "RECV";
+	case IBV_WC_RECV_RDMA_WITH_IMM:
+		return "RECV_RDMA_WITH_IMM";
+	default:
+		return "UNKNOWN";
 	}
 }
 
@@ -129,18 +138,21 @@ _handle_send_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc)
 	struct xnvme_be_nvmf_wr_id wr_id = {.raw = wc->wr_id};
 	int status = (wc->status == IBV_WC_SUCCESS) ? 0 : -EIO;
 
-	_NVMF_DATA_DEBUG("INFO: Work completion, status: %s, opcode: %s, wr_id index: %u, type: %u", 
-		ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode), wr_id.index, wr_id.type);
+	_NVMF_DATA_DEBUG(
+		"INFO: Work completion, status: %s, opcode: %s, wr_id index: %u, type: %u",
+		ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode), wr_id.index,
+		wr_id.type);
 
 	req = xnvme_be_nvmf_req_get(qpair->req_pool, wr_id.index);
 	if (!req) {
-		_NVMF_DATA_ERROR("FAILED: xnvme_be_nvmf_req_get() for wr_id index: %u", wr_id.index);
-		return -EIO;  // TODO: Find a different error code
+		_NVMF_DATA_ERROR("FAILED: xnvme_be_nvmf_req_get() for wr_id index: %u",
+				 wr_id.index);
+		return -EIO; // TODO: Find a different error code
 	}
 
 	/* wr_id carries the original buffer pointer set in _rdma_send_capsule. */
 	void *buf = (void *)(uintptr_t)wc->wr_id;
-	
+
 	req->cmpl_type = XNVME_BE_NVMF_REQ_CMPL_TYPE_SEND;
 	req->status = wc->status;
 	if (wc->status != IBV_WC_SUCCESS) {
@@ -200,12 +212,16 @@ _handle_recv_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc)
 	struct ibv_recv_wr recv_wr;
 	int err;
 
-	_NVMF_DATA_DEBUG("INFO: Work completion, status: %s, opcode: %s, byte_len: %u, wr_id index: %u, type: %u", 
-		ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode), wc->byte_len, wr_id.index, wr_id.type);
+	_NVMF_DATA_DEBUG("INFO: Work completion, status: %s, opcode: %s, byte_len: %u, wr_id "
+			 "index: %u, type: %u",
+			 ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode),
+			 wc->byte_len, wr_id.index, wr_id.type);
 
 	if (wc->status != IBV_WC_SUCCESS) {
 		_NVMF_DATA_ERROR("FAILED: recv WC error: %s", ibv_wc_status_str(wc->status));
-		qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;  // TODO: Cannot track which request caused the error, so ignore for now and mark the qpair as dead. 
+		qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR; // TODO: Cannot track which request
+							     // caused the error, so ignore for now
+							     // and mark the qpair as dead.
 		return -EIO;
 	}
 
@@ -240,8 +256,10 @@ static inline void
 _handle_ibv_poll_error(struct xnvme_be_nvmf_qpair *qpair, struct ibv_wc *wc, int err)
 {
 	_NVMF_DATA_ERROR("FAILED: ibv_poll_cq() for cq, err: %d", err);
-	_NVMF_DATA_DEBUG("INFO: ibv_poll_cq() returned error, wc status: %s, opcode: %s, byte_len: %u, wr_id index: %u, type: %u", 
-		ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode), wc->byte_len, wc->wr_id, 0);
+	_NVMF_DATA_DEBUG("INFO: ibv_poll_cq() returned error, wc status: %s, opcode: %s, "
+			 "byte_len: %u, wr_id index: %u, type: %u",
+			 ibv_wc_status_str(wc->status), _ibv_wc_opcode_str(wc->opcode),
+			 wc->byte_len, wc->wr_id, 0);
 	qpair->state = XNVME_NVMF_QPAIR_STATE_ERROR;
 }
 
@@ -273,7 +291,7 @@ _process_completions(struct xnvme_be_nvmf_qpair *qpair, struct ibv_cq *cq,
 			_NVMF_DATA_ERROR("FAILED: handle_cmpl(), err: %d", err);
 			return -err;
 		}
-		
+
 		count++;
 	}
 
@@ -285,7 +303,8 @@ _process_recv_completions(struct xnvme_be_nvmf_qpair *qpair, int max_completions
 {
 	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);
 
-	return _process_completions(qpair, rdma_qpair->cm_id->qp->recv_cq, _handle_recv_cmpl, max_completions);
+	return _process_completions(qpair, rdma_qpair->cm_id->qp->recv_cq, _handle_recv_cmpl,
+				    max_completions);
 }
 
 static inline int
@@ -293,7 +312,8 @@ _process_send_completions(struct xnvme_be_nvmf_qpair *qpair, int max_completions
 {
 	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);
 
-	return _process_completions(qpair, rdma_qpair->cm_id->qp->send_cq, _handle_send_cmpl, max_completions);
+	return _process_completions(qpair, rdma_qpair->cm_id->qp->send_cq, _handle_send_cmpl,
+				    max_completions);
 }
 
 static inline int
@@ -337,7 +357,8 @@ _disconnect_rdma_qpair_sync(struct xnvme_be_nvmf_qpair *qpair)
 		_NVMF_CTRL_ERROR("FAILED: rdma_disconnect(), err: %d", err);
 		return err;
 	}
-	_NVMF_CTRL_DEBUG("INFO: rdma_disconnect() successful, waiting for RDMA_CM_EVENT_DISCONNECTED");
+	_NVMF_CTRL_DEBUG(
+		"INFO: rdma_disconnect() successful, waiting for RDMA_CM_EVENT_DISCONNECTED");
 
 	while (qpair->state != XNVME_NVMF_QPAIR_STATE_DISCONNECTED) {
 		err = qpair->ctrlr->ops->process_events(qpair->ctrlr,
@@ -401,7 +422,8 @@ _connect_rdma_qpair_sync(struct xnvme_be_nvmf_qpair *qpair)
 }
 
 int
-xnvme_be_nvmf_create_rdma_qpair(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_be_nvmf_qpair_attr *attr,
+xnvme_be_nvmf_create_rdma_qpair(struct xnvme_be_nvmf_ctrlr *ctrlr,
+				struct xnvme_be_nvmf_qpair_attr *attr,
 				struct xnvme_be_nvmf_qpair **qpair)
 {
 	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair;
@@ -431,16 +453,14 @@ xnvme_be_nvmf_create_rdma_qpair(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_
 }
 
 static inline int
-_rdma_send_cap(struct xnvme_be_nvmf_qpair *qpair, 
-	struct xnvme_be_nvmf_req *req,
-	void *buf,
-	size_t len,
-	uint32_t lkey)
+_rdma_send_cap(struct xnvme_be_nvmf_qpair *qpair, const void *buf, size_t len, uint16_t cid,
+	       uint32_t lkey)
 {
 	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);
 	struct xnvme_be_nvmf_wr_id wr_id = {0};
 	struct ibv_sge sge = {
-		.addr = (uintptr_t)buf,  // assume we will use this buffer directly for sending (inline)
+		.addr = (uintptr_t)
+			buf, // assume we will use this buffer directly for sending (inline)
 		.length = len,
 		.lkey = lkey,
 	};
@@ -455,7 +475,7 @@ _rdma_send_cap(struct xnvme_be_nvmf_qpair *qpair,
 	int err;
 
 	wr_id.type = XNVME_BE_NVMF_WR_TYPE_SEND;
-	wr_id.index = req->cid;
+	wr_id.index = cid;
 
 	send_wr.wr_id = wr_id.raw;
 
@@ -464,17 +484,21 @@ _rdma_send_cap(struct xnvme_be_nvmf_qpair *qpair,
 		sge.lkey = 0;
 	} else {
 		if (len > qpair->attr.capsule_size) {
-			XNVME_DEBUG("WARNING: Capsule size exceeded, len: %zu, capsule_size: %zu", len, qpair->attr.capsule_size);
+			XNVME_DEBUG("WARNING: Capsule size exceeded, len: %zu, capsule_size: %zu",
+				    len, qpair->attr.capsule_size);
 			return -EINVAL;
 		}
-		sge.addr = (uintptr_t)(rdma_qpair->send_buffer + wr_id.index * qpair->attr.capsule_size);
+		sge.addr = (uintptr_t)(rdma_qpair->send_buffer +
+				       wr_id.index * qpair->attr.capsule_size);
 
-		memcpy((void *) sge.addr, buf, len);
+		memcpy((void *)sge.addr, buf, len);
 	}
 
-	_NVMF_DATA_DEBUG("INFO: Hexdump of send buffer: addr=%p, len=%zu, lkey=%u", (void *)sge.addr, sge.length, sge.lkey);
-	_hexdump_range(NVMF_DEBUG_CATEGORY_VERBS_DATA, (void *) sge.addr, sge.length);
-	_NVMF_DATA_DEBUG("INFO: Sending capsule, wr_id.index: %lu, wr_id.type: %u, len: %zu", wr_id.index, wr_id.type, len);
+	_NVMF_DATA_DEBUG("INFO: Hexdump of send buffer: addr=%p, len=%zu, lkey=%u",
+			 (void *)sge.addr, sge.length, sge.lkey);
+	_hexdump_range(NVMF_DEBUG_CATEGORY_VERBS_DATA, (void *)sge.addr, sge.length);
+	_NVMF_DATA_DEBUG("INFO: Sending capsule, wr_id.index: %lu, wr_id.type: %u, len: %zu",
+			 wr_id.index, wr_id.type, len);
 	err = ibv_post_send(rdma_qpair->cm_id->qp, &send_wr, &bad_wr);
 	if (err) {
 		_NVMF_DATA_ERROR("FAILED: ibv_post_send(), err: %d", err);
@@ -483,23 +507,24 @@ _rdma_send_cap(struct xnvme_be_nvmf_qpair *qpair,
 }
 
 static int
-_rdma_send_capsule(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_be_nvmf_req *req, void *buf, size_t len)
+_rdma_qpair_submit(struct xnvme_be_nvmf_qpair *qpair, const void *capsule, size_t nbytes,
+		   uint16_t cid)
 {
-	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);	
+	struct xnvme_be_nvmf_rdma_qpair *rdma_qpair = TO_XNVME_NVMF_RDMA_QPAIR(qpair);
 
-	return _rdma_send_cap(qpair, req, buf, len, rdma_qpair->send_mr->lkey);
+	return _rdma_send_cap(qpair, capsule, nbytes, cid, rdma_qpair->send_mr->lkey);
 }
-	
+
 /* upper-layer function to poke the RDMA qpair for completions */
 static int
-_rdma_process_completions(struct xnvme_be_nvmf_qpair *qpair, int max_completions) 
+_rdma_qpair_poll(struct xnvme_be_nvmf_qpair *qpair, uint32_t max)
 {
-	int err = _process_send_completions(qpair, max_completions);
+	int err = _process_send_completions(qpair, max);
 	if (err < 0) {
 		return err;
 	}
 
-	return _process_recv_completions(qpair, max_completions);
+	return _process_recv_completions(qpair, max);
 }
 
 static int
@@ -519,27 +544,30 @@ _rdma_destroy(struct xnvme_be_nvmf_qpair *qpair)
 }
 
 static int
-_rdma_cmd_io(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbuf_nbytes,
-			    void *mbuf, size_t mbuf_nbytes)
+_rdma_cmd_io(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, void *dbuf,
+	     size_t dbuf_nbytes, void *mbuf, size_t mbuf_nbytes)
 {
 	return -ENOSYS;
 }
 
 static int
-_rdma_cmd_iov(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, struct iovec *dvec, size_t dvec_cnt, size_t dvec_nbytes,
-		struct iovec *mvec, size_t mvec_cnt, size_t mvec_nbyte)
+_rdma_cmd_iov(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx, struct iovec *dvec,
+	      size_t dvec_cnt, size_t dvec_nbytes, struct iovec *mvec, size_t mvec_cnt,
+	      size_t mvec_nbyte)
 {
 	return -ENOSYS;
 }
 
 static int
-_rdma_register_memory(struct xnvme_be_nvmf_qpair *qpair, void *buf,	size_t len, void **handle, uint64_t *lkey, uint64_t *rkey)
+_rdma_register_memory(struct xnvme_be_nvmf_qpair *qpair, void *buf, size_t len, void **handle,
+		      uint64_t *lkey, uint64_t *rkey)
 {
 	struct xnvme_be_nvmf_rdma_ctrlr *rdma_ctrlr = TO_XNVME_NVMF_RDMA_CTRLR(qpair->ctrlr);
 	struct ibv_mr *mr;
 	int err;
 
-	mr = ibv_reg_mr(rdma_ctrlr->pd, buf, len, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
+	mr = ibv_reg_mr(rdma_ctrlr->pd, buf, len,
+			IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
 	if (!mr) {
 		XNVME_DEBUG("FAILED: ibv_reg_mr()");
 		return -ENOMEM;
@@ -578,6 +606,6 @@ static struct xnvme_be_nvmf_qpair_ops g_xnvme_be_nvmf_rdma_qpair_ops = {
 
 	.cmd_io = _rdma_cmd_io,
 	.cmd_iov = _rdma_cmd_iov,
-	.send_capsule = _rdma_send_capsule,
-	.process_completions = _rdma_process_completions,
+	.qpair_submit = _rdma_qpair_submit,
+	.qpair_poll = _rdma_qpair_poll,
 };

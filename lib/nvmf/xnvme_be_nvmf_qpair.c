@@ -61,13 +61,14 @@ _xnvme_be_nvmf_on_recv_cmpl(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_be_n
 #endif
 
 int
-xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *dev, struct xnvme_be_nvmf_qpair_attr *attr,
+xnvme_be_nvmf_qpair_create(struct xnvme_be_nvmf_ctrlr *ctrlr, struct xnvme_dev *dev,
+			   struct xnvme_be_nvmf_qpair_attr *attr,
 			   struct xnvme_be_nvmf_qpair **qpair)
 {
 	struct xnvme_be_nvmf_qpair *tmp;
 	int err;
 
-    if (!attr) {
+	if (!attr) {
 		return -EINVAL;
 	}
 
@@ -115,7 +116,8 @@ xnvme_be_nvmf_qpair_connect(struct xnvme_be_nvmf_qpair *qpair)
 		return err;
 	}
 
-	// At this point, the transport has connected, but the fabric connect sequence is not complete.
+	// At this point, the transport has connected, but the fabric connect sequence is not
+	// complete.
 	assert(qpair->state == XNVME_NVMF_QPAIR_STATE_CONNECTED);
 
 	err = xnvme_be_nvmf_send_fabric_connect_command(qpair);
@@ -138,7 +140,7 @@ xnvme_be_nvmf_qpair_disconnect(struct xnvme_be_nvmf_qpair *qpair)
 int
 xnvme_be_nvmf_qpair_destroy(struct xnvme_be_nvmf_qpair *qpair)
 {
-	int err; 
+	int err;
 
 	err = xnvme_be_nvmf_req_pool_free(qpair->req_pool);
 	if (err) {
@@ -147,4 +149,25 @@ xnvme_be_nvmf_qpair_destroy(struct xnvme_be_nvmf_qpair *qpair)
 	}
 
 	return qpair->ops->destroy(qpair);
+}
+
+int
+xnvme_be_nvmf_qpair_complete(struct xnvme_be_nvmf_qpair *qpair, const struct xnvme_spec_cpl *cpl)
+{
+	struct xnvme_be_nvmf_req *req;
+	struct xnvme_cmd_ctx *ctx;
+
+	req = xnvme_be_nvmf_req_get(qpair->req_pool, cpl->cid);
+	if (!req) {
+		_NVMF_ERROR("FAILED: xnvme_be_nvmf_req_get() for cid: %u", cpl->cid);
+		return -EINVAL;
+	}
+
+	ctx = (struct xnvme_cmd_ctx *)req->context;
+	ctx->cpl = *cpl;
+
+	req->cmpl_type = XNVME_BE_NVMF_REQ_CMPL_TYPE_RECV;
+	req->status = 0;
+
+	return 0;
 }
