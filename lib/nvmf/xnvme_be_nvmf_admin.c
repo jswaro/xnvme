@@ -18,9 +18,6 @@
 #include <xnvme_be_nvmf_qpair.h>
 #include <xnvme_be_nvmf_req.h>
 #include <xnvme_be_nvmf_debug.h>
-#include <xnvme_be_nvmf_rdma.h> // LATER
-
-#include <infiniband/verbs.h>
 
 #define _NVMF_ERROR(fmt, ...) NVMF_ERROR(NVMF_DEBUG_CATEGORY_CMD_ADMIN, fmt, ##__VA_ARGS__)
 #define _NVMF_DEBUG(fmt, ...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CMD_ADMIN, fmt, ##__VA_ARGS__)
@@ -28,13 +25,14 @@
 static inline int
 _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cmd_ctx *ctx,
 			      struct xnvme_be_nvmf_req *req, void *dbuf, size_t dbuf_nbytes,
-			      struct ibv_mr **data_mr_out)
+			      void **handle_out)
 {
 	struct xnvme_be_nvmf_state *state = (void *)ctx->dev->be.state;
 	struct xnvme_spec_cmd *cmd = &ctx->cmd;
 	struct xnvme_spec_sgl_descriptor *sgl = (void *)&cmd->common.dptr.sgl;
-	struct xnvme_be_nvmf_rdma_ctrlr *rdma_ctrlr =
-		TO_XNVME_NVMF_RDMA_CTRLR(state->ctrlr); // LATER
+	struct xnvme_be_nvmf_ctrlr *ctrlr = state->ctrlr;
+	void *handle;
+	uint32_t key;
 	int err;
 
 	_NVMF_DEBUG("INFO: Preparing IDFY command with dbuf at %p, cntlid: %zu", dbuf,
@@ -92,13 +90,10 @@ _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cm
 		break;
 	}
 
-	struct ibv_mr *data_mr = ibv_reg_mr(rdma_ctrlr->pd, dbuf, dbuf_nbytes,
-					    IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
-						    IBV_ACCESS_REMOTE_WRITE);
-	if (!data_mr) {
-		_NVMF_ERROR("FAILED: ibv_reg_mr() for data buffer, err: %d", errno);
-		err = -errno;
-		return -errno;
+	err = xnvme_be_nvmf_ctrlr_reg(ctrlr, dbuf, dbuf_nbytes, &handle, &key);
+	if (err) {
+		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_reg() for data buffer, err: %d", err);
+		return err;
 	}
 
 	_NVMF_DEBUG("INFO: Command before sending:");
@@ -108,8 +103,8 @@ _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cm
 
 	sgl->addr = (uint64_t)dbuf;
 	sgl->keyed.len = dbuf_nbytes;
-	sgl->keyed.key = data_mr->rkey; // TODO: This needs to be set to the correct value for the
-					// controller.
+	sgl->keyed.key = key; // TODO: This needs to be set to the correct value for the
+			      // controller.
 	sgl->keyed.type = XNVME_SPEC_SGL_DESCR_TYPE_KEYED_DATA_BLOCK;
 	sgl->keyed.subtype = XNVME_SPEC_SGL_DESCR_SUBTYPE_ADDRESS;
 
@@ -123,13 +118,13 @@ _xnvme_be_nvmf_admin_cmd_idfy(struct xnvme_be_nvmf_qpair *qpair, struct xnvme_cm
 	err = xnvme_be_nvmf_qpair_submit(qpair, cmd, sizeof(struct xnvme_spec_cmd), req->cid);
 	if (err) {
 		_NVMF_ERROR("FAILED: xnvme_be_nvmf_qpair_submit(), err: %d", err);
-		ibv_dereg_mr(data_mr);
+		xnvme_be_nvmf_ctrlr_dereg(ctrlr, handle);
 		return err;
 	}
 
 	/* Deregistered by the caller only after the command completes: the remote
-	 * controller still needs the rkey valid to RDMA-write the Identify data. */
-	*data_mr_out = data_mr;
+	 * controller still needs the key valid to RDMA-write the Identify data. */
+	*handle_out = handle;
 	return 0;
 }
 
@@ -141,7 +136,7 @@ _xnvme_be_nvmf_admin_cmd_admin(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbu
 	struct xnvme_be_nvmf_ctrlr *ctrlr = state->ctrlr;
 	struct xnvme_be_nvmf_qpair *qpair = ctrlr->admin_qpair;
 	struct xnvme_be_nvmf_req *req = NULL;
-	struct ibv_mr *data_mr = NULL;
+	void *handle = NULL;
 	int err = 0;
 
 	_NVMF_DEBUG("INFO: admin_cmd() for NVMe-oF device: %s", ctx->dev->ident.uri);
@@ -160,7 +155,7 @@ _xnvme_be_nvmf_admin_cmd_admin(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbu
 	case XNVME_SPEC_ADM_OPC_IDFY:
 
 		//_hexdump_range(dbuf, dbuf_nbytes);
-		err = _xnvme_be_nvmf_admin_cmd_idfy(qpair, ctx, req, dbuf, dbuf_nbytes, &data_mr);
+		err = _xnvme_be_nvmf_admin_cmd_idfy(qpair, ctx, req, dbuf, dbuf_nbytes, &handle);
 		if (err) {
 			_NVMF_ERROR("FAILED: _xnvme_be_nvmf_admin_cmd_idfy(), err: %d", err);
 		}
@@ -177,8 +172,8 @@ _xnvme_be_nvmf_admin_cmd_admin(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbu
 
 	xnvme_be_nvmf_wait_for_completion(qpair, req);
 
-	if (data_mr) {
-		ibv_dereg_mr(data_mr);
+	if (handle) {
+		xnvme_be_nvmf_ctrlr_dereg(ctrlr, handle);
 	}
 
 	xnvme_be_nvmf_req_free(qpair->req_pool, req);
