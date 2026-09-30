@@ -154,7 +154,6 @@ _xnvme_be_nvmf_admin_cmd_admin(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbu
 	/* Set the command identifier (CID) to the request's CID */
 	ctx->cmd.common.cid = req->cid;
 
-	pthread_mutex_lock(&state->lock);
 	switch (ctx->cmd.common.opcode) {
 	case XNVME_SPEC_ADM_OPC_IDFY:
 
@@ -173,7 +172,6 @@ _xnvme_be_nvmf_admin_cmd_admin(struct xnvme_cmd_ctx *ctx, void *dbuf, size_t dbu
 		err = -ENOSYS;
 		break;
 	}
-	pthread_mutex_unlock(&state->lock);
 
 	xnvme_be_nvmf_wait_for_completion(qpair, req);
 

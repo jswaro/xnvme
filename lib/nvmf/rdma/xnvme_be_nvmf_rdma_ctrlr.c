@@ -11,11 +11,11 @@
 
 #include <errno.h>
 #include <unistd.h>
-#include <pthread.h>
 
 #include <xnvme_dev.h>
 
 #include <rdma/rdma_cma.h>
+#include <infiniband/verbs.h>
 #include <netinet/in.h>
 
 #include <xnvme_be_nvmf.h>
@@ -38,16 +38,13 @@ _process_cm_events(struct xnvme_be_nvmf_ctrlr *ctrlr, int timeout_ms)
 	struct xnvme_timer timer;
 	int err = 0;
 
-	pthread_mutex_lock(&ctrlr->lock);
-
 	xnvme_timer_start(&timer);
 	do {
 		err = rdma_get_cm_event(event_channel, &event);
 		if (err) {
 			if (xnvme_timer_elapsed_msecs(&timer) >= (double)timeout_ms) {
 				_NVMF_RDMACM_ERROR("FAILED: rdma_get_cm_event() timed out");
-				err = -ETIMEDOUT;
-				goto unlock_ctrlr;
+				return -ETIMEDOUT;
 			}
 
 			// TODO: replace with non-blocking poll to avoid busy-wait
@@ -63,11 +60,8 @@ _process_cm_events(struct xnvme_be_nvmf_ctrlr *ctrlr, int timeout_ms)
 	err = rdma_ack_cm_event(event);
 	if (err) {
 		_NVMF_RDMACM_ERROR("FAILED: rdma_ack_cm_event(), err: %d", err);
-		goto unlock_ctrlr;
 	}
 
-unlock_ctrlr:
-	pthread_mutex_unlock(&ctrlr->lock);
 	return err;
 }
 
@@ -229,6 +223,58 @@ _destroy_rdma_controller(struct xnvme_be_nvmf_ctrlr *ctrlr)
 	return 0;
 }
 
+/**
+ * ctrlr_reg / ctrlr_dereg
+ *
+ * Thin wrapper around ibv_reg_mr()/ibv_dereg_mr() on the ctrlr's PD. The PD
+ * is created lazily during the admin qpair's transport connect (see
+ * design.md section 4), so it must exist by the time any caller registers
+ * memory.
+ */
+static int
+_reg_rdma_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr, void *buf, size_t nbytes, void **handle,
+		uint32_t *key)
+{
+	struct xnvme_be_nvmf_rdma_ctrlr *rdma_ctrlr = TO_XNVME_NVMF_RDMA_CTRLR(ctrlr);
+	struct ibv_mr *mr;
+
+	if (!rdma_ctrlr->pd) {
+		_NVMF_RDMACM_ERROR("FAILED: no PD on controller");
+		return -EINVAL;
+	}
+
+	mr = ibv_reg_mr(rdma_ctrlr->pd, buf, nbytes,
+			IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
+	if (!mr) {
+		_NVMF_RDMACM_ERROR("FAILED: ibv_reg_mr(), err: %d", errno);
+		return -errno;
+	}
+
+	*handle = mr;
+	*key = mr->rkey;
+
+	return 0;
+}
+
+static int
+_dereg_rdma_ctrlr(struct xnvme_be_nvmf_ctrlr *XNVME_UNUSED(ctrlr), void *handle)
+{
+	struct ibv_mr *mr = handle;
+	int err;
+
+	if (!mr) {
+		return 0;
+	}
+
+	err = ibv_dereg_mr(mr);
+	if (err) {
+		_NVMF_RDMACM_ERROR("FAILED: ibv_dereg_mr(), err: %d", err);
+		return -err;
+	}
+
+	return 0;
+}
+
 static struct xnvme_be_nvmf_ctrlr_ops g_xnvme_be_nvmf_rdma_ctrlr_ops = {
 	.connect = _connect_rdma_controller,
 	.disconnect = _disconnect_rdma_controller,
@@ -236,4 +282,7 @@ static struct xnvme_be_nvmf_ctrlr_ops g_xnvme_be_nvmf_rdma_ctrlr_ops = {
 
 	.create_qpair = xnvme_be_nvmf_create_rdma_qpair,
 	.process_events = _process_cm_events,
+
+	.ctrlr_reg = _reg_rdma_ctrlr,
+	.ctrlr_dereg = _dereg_rdma_ctrlr,
 };

@@ -6,6 +6,7 @@
 #include <xnvme_be_nvmf_ctrlr.h>
 #include <xnvme_be_nvmf_qpair.h>
 #include <xnvme_be_nvmf_transport.h>
+#include <xnvme_be_nvmf_fabric.h>
 #include <xnvme_be_nvmf_debug.h>
 
 #define _NVMF_DEBUG(fmt,...) NVMF_DEBUG(NVMF_DEBUG_CATEGORY_CORE_CTRLR, fmt, ##__VA_ARGS__)
@@ -33,7 +34,7 @@ extern struct xnvme_be_nvmf_transport g_xnvme_be_nvmf_rdma_transport;
 struct xnvme_be_nvmf_transport *g_xnvme_be_nvmf_transports[] = {&g_xnvme_be_nvmf_rdma_transport,
 								NULL};
 
-static inline int
+int
 xnvme_be_nvmf_ctrlr_connect(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 {
 	int err;
@@ -53,7 +54,7 @@ xnvme_be_nvmf_ctrlr_connect(struct xnvme_be_nvmf_ctrlr *ctrlr, const char *uri)
 	return err;
 }
                                 
-static inline int
+int
 xnvme_be_nvmf_ctrlr_disconnect(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
 	if (!ctrlr) {
@@ -70,7 +71,7 @@ xnvme_be_nvmf_ctrlr_disconnect(struct xnvme_be_nvmf_ctrlr *ctrlr)
 }
 
 
-static int
+int
 xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
 	struct xnvme_be_nvmf_ctrlr_attr *attr,
 	struct xnvme_be_nvmf_ctrlr **ctrlr)
@@ -99,7 +100,6 @@ xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
         return err;
     }
 
-    pthread_mutex_init(&tmp->lock, NULL);
     tmp->ctrlr_id = attr->ctrlr_id;
     tmp->transport = transport;
 	tmp->ctrlr_state = XNVME_NVMF_CTRLR_STATE_INIT;
@@ -123,7 +123,7 @@ xnvme_be_nvmf_ctrlr_create(struct xnvme_be_nvmf_transport *transport,
 	return err;
 }
 
-static inline int
+int
 xnvme_be_nvmf_ctrlr_destroy(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
 	if (ctrlr->ops && ctrlr->ops->destroy) {
@@ -163,6 +163,7 @@ destroy_controller:
 	return err;
 }
 
+
 static inline void 
 _dump_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr)
 {
@@ -176,40 +177,29 @@ _dump_ctrlr(struct xnvme_be_nvmf_ctrlr *ctrlr)
 }
 
 /**
- * Initialize a new controller for the device URI.
+ * Probes every registered transport for @dev->ident.uri.
  *
- * Inits the environment, if needed, and probes for a device matching the URI.
+ * Runs up to XNVME_BE_NVMF_MAX_PROBE_ATTEMPTS rounds, each walking every
+ * registered transport. On success `*ctrlr` is a connected controller.
  */
-void *
-xnvme_be_nvmf_ctrlr_init(struct xnvme_dev *dev)
+int
+xnvme_be_nvmf_ctrlr_probe(struct xnvme_dev *dev, struct xnvme_be_nvmf_ctrlr **ctrlr)
 {
-	struct xnvme_be_nvmf_state *state = (void *)dev->be.state;
-	struct xnvme_be_nvmf_ctrlr *ctrlr = NULL;
+	struct xnvme_be_nvmf_ctrlr *tmp_ctrlr = NULL;
 	struct xnvme_be_nvmf_ctrlr_attr attr = {
 		.dev = dev,
 	};
 	int ctrlr_id;
-	int err;
-
-	_NVMF_INFO("INFO: ctrlr_init() for NVMe-oF device: %s, ns=%u, discovery=%s",
-		    dev->ident.uri, dev->ident.nsid, dev->ident.nsid == 0 ? "yes" : "no");
-
-	if (state->ctrlr) {
-		_NVMF_INFO("INFO: Controller already initialized, reusing existing controller");
-		return state->ctrlr;
-	}
+	int err = -ENXIO;
 
 	ctrlr_id = atomic_fetch_add(&g_xnvme_be_nvmf_ctrlr_id_counter, 1);
-	// _NVMF_INFO("INFO: Assigned controller ID: %d", ctrlr_id);
-
 	attr.ctrlr_id = ctrlr_id;
 
-	// Probe the uri to check if the device is reachable and supports NVMe-oF.
-	for (int i = 0; !ctrlr; ++i) {
+	for (int i = 0; !tmp_ctrlr; ++i) {
 		// If the maximum number of attempts is reached, return an error.
 		if (XNVME_BE_NVMF_MAX_PROBE_ATTEMPTS == i) {
 			_NVMF_ERROR("FAILED: max attempts exceeded");
-			errno = ENXIO;
+			err = -ENXIO;
 			goto free_ctrlr_id;
 		}
 
@@ -217,7 +207,7 @@ xnvme_be_nvmf_ctrlr_init(struct xnvme_dev *dev)
 		{
 			_NVMF_INFO("INFO: Attempting to probe transport: %s", (*transport)->name);
 
-			err = xnvme_be_nvmf_transport_probe(*transport, &attr, &ctrlr);
+			err = xnvme_be_nvmf_transport_probe(*transport, &attr, &tmp_ctrlr);
 			if (!err) {
 				_NVMF_INFO("INFO: Successfully connected to transport: %s",
 					    dev->ident.uri);
@@ -232,17 +222,8 @@ xnvme_be_nvmf_ctrlr_init(struct xnvme_dev *dev)
 		}
 	}
 
-	if (!ctrlr) {
-		_NVMF_ERROR("FAILED: No transport could connect to the device: %s",
-			    dev->ident.uri);
-		errno = ENXIO;
-		goto free_ctrlr_id;
-	}
-
-	_dump_ctrlr(ctrlr);
-
-	_NVMF_INFO("INFO: ctrlr_init() OK");
-	return ctrlr;
+	*ctrlr = tmp_ctrlr;
+	return 0;
 
 free_ctrlr_id:
 	// attempt to free the controller ID if we failed to allocate a controller.
@@ -250,16 +231,113 @@ free_ctrlr_id:
 	// TODO: Implement as a bitmask or find something more comprehensive to reallocate
 	// controller IDs
 	atomic_compare_exchange_strong(&g_xnvme_be_nvmf_ctrlr_id_counter, &ctrlr_id, ctrlr_id - 1);
-	return NULL;
+	return err;
+}
+
+/**
+ * Sets CC.EN and waits on CSTS.RDY, through Fabrics Property Get and Set on
+ * the admin qpair. Forwards to `xnvme_be_nvmf_initialize_remote_ctrlr()`
+ * (fabric.c), which task 6 renames in place.
+ */
+int
+xnvme_be_nvmf_ctrlr_enable(struct xnvme_be_nvmf_ctrlr *ctrlr)
+{
+	if (!ctrlr || !ctrlr->admin_qpair) {
+		_NVMF_ERROR("FAILED: Invalid ctrlr or missing admin_qpair");
+		return -EINVAL;
+	}
+
+	return xnvme_be_nvmf_initialize_remote_ctrlr(ctrlr, ctrlr->admin_qpair);
+}
+
+/**
+ * Clears CC.EN. No flow calls this yet; matches the current fabric.c, which
+ * has no counterpart to `xnvme_be_nvmf_initialize_remote_ctrlr()`.
+ */
+int
+xnvme_be_nvmf_ctrlr_disable(struct xnvme_be_nvmf_ctrlr *ctrlr)
+{
+	(void)ctrlr;
+
+	_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_disable() not implemented");
+	return -ENOSYS;
 }
 
 int
-xnvme_be_nvmf_ctrlr_term(void *ctrlr)
+xnvme_be_nvmf_ctrlr_reg(struct xnvme_be_nvmf_ctrlr *ctrlr, void *buf, size_t nbytes, void **handle,
+			uint32_t *key)
+{
+	if (!ctrlr || !ctrlr->ops || !ctrlr->ops->ctrlr_reg) {
+		_NVMF_ERROR("FAILED: No ctrlr_reg operation defined for controller");
+		return -ENOSYS;
+	}
+
+	return ctrlr->ops->ctrlr_reg(ctrlr, buf, nbytes, handle, key);
+}
+
+int
+xnvme_be_nvmf_ctrlr_dereg(struct xnvme_be_nvmf_ctrlr *ctrlr, void *handle)
+{
+	if (!ctrlr || !ctrlr->ops || !ctrlr->ops->ctrlr_dereg) {
+		_NVMF_ERROR("FAILED: No ctrlr_dereg operation defined for controller");
+		return -ENOSYS;
+	}
+
+	return ctrlr->ops->ctrlr_dereg(ctrlr, handle);
+}
+
+/**
+ * Glue-facing entry point wired as `xnvme_be_dev.ctrlr_init`.
+ *
+ * Probes for a controller matching @dev->ident.uri and enables it once. A
+ * cref hit is handled by the caller (the platform inserts the returned
+ * pointer as a cref before calling `dev_open`), so `state->ctrlr` is only
+ * ever non-NULL here on the dead reuse path documented in design.md.
+ */
+void *
+xnvme_be_nvmf_dev_ctrlr_init(struct xnvme_dev *dev)
+{
+	struct xnvme_be_nvmf_state *state = (void *)dev->be.state;
+	struct xnvme_be_nvmf_ctrlr *ctrlr = NULL;
+	int err;
+
+	_NVMF_INFO("INFO: dev_ctrlr_init() for NVMe-oF device: %s, ns=%u, discovery=%s",
+		    dev->ident.uri, dev->ident.nsid, dev->ident.nsid == 0 ? "yes" : "no");
+
+	if (state->ctrlr) {
+		_NVMF_INFO("INFO: Controller already initialized, reusing existing controller");
+		return state->ctrlr;
+	}
+
+	err = xnvme_be_nvmf_ctrlr_probe(dev, &ctrlr);
+	if (err) {
+		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_probe(), err: %d", err);
+		errno = -err;
+		return NULL;
+	}
+
+	_dump_ctrlr(ctrlr);
+
+	err = xnvme_be_nvmf_ctrlr_enable(ctrlr);
+	if (err) {
+		_NVMF_ERROR("FAILED: xnvme_be_nvmf_ctrlr_enable(), err: %d", err);
+		xnvme_be_nvmf_ctrlr_disconnect(ctrlr);
+		xnvme_be_nvmf_ctrlr_destroy(ctrlr);
+		errno = -err;
+		return NULL;
+	}
+
+	_NVMF_INFO("INFO: dev_ctrlr_init() OK");
+	return ctrlr;
+}
+
+int
+xnvme_be_nvmf_dev_ctrlr_term(void *ctrlr)
 {
 	struct xnvme_be_nvmf_ctrlr *nvmf_ctrlr = (void *)ctrlr;
 	int err;
 
-	_NVMF_INFO("INFO: ctrlr_term() for NVMe-oF controller");
+	_NVMF_INFO("INFO: dev_ctrlr_term() for NVMe-oF controller");
 
 	if (nvmf_ctrlr) {
 		if (nvmf_ctrlr->ctrlr_state == XNVME_NVMF_CTRLR_STATE_CONNECTED) {
